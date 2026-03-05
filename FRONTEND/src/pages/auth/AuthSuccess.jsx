@@ -1,7 +1,7 @@
 // src/pages/auth/AuthSuccess.jsx
 import { useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth } from "../../context/AuthContext";
 import { Mail, CheckCircle, AlertCircle } from "lucide-react";
 
 export default function AuthSuccess() {
