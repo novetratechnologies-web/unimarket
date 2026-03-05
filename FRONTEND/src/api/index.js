@@ -6,23 +6,69 @@ import axios from 'axios';
 import { AUTH_KEYS } from '../constants/auth';
 
 // ============================================
+// 🔥 ENHANCED: Environment detection with fallbacks
+// ============================================
+
+// Log all environment variables at startup
+console.log('📋 All import.meta.env:', import.meta.env);
+
+const VITE_ENV = import.meta.env.VITE_ENV;
+const VITE_API_URL = import.meta.env.VITE_API_URL;
+const MODE = import.meta.env.MODE;
+const PROD = import.meta.env.PROD;
+const DEV = import.meta.env.DEV;
+
+console.log('🔍 Environment Variables:', {
+  VITE_ENV,
+  VITE_API_URL,
+  MODE,
+  PROD,
+  DEV,
+  'process.env.NODE_ENV': process.env.NODE_ENV
+});
+
+// ============================================
 // ✅ FIXED: Environment-based baseURL configuration
 // ============================================
-const isDevelopment = import.meta.env.VITE_ENV === 'development';
-const isProduction = import.meta.env.PROD || process.env.NODE_ENV === 'production';
+const isDevelopment = VITE_ENV === 'development' || DEV === true;
+const isProduction = PROD === true || process.env.NODE_ENV === 'production';
 
-// ✅ CORRECT: Use environment variable with fallback
-const baseURL = isDevelopment 
-  ? '/api' 
-  : (import.meta.env.VITE_API_URL || 'https://unimarket-vtx5.onrender.com/api');
+// ✅ CRITICAL FIX: Force production URL if we're on the live domain
+const isLiveDomain = window.location.hostname.includes('unimatket.store') || 
+                     window.location.hostname.includes('vercel.app');
 
-console.log('🔧 Environment:', { 
+console.log('🌍 Domain check:', {
+  hostname: window.location.hostname,
+  isLiveDomain
+});
+
+// ✅ CORRECT: Use environment variable with multiple fallbacks
+let baseURL;
+
+if (isDevelopment && !isLiveDomain) {
+  // Local development
+  baseURL = '/api';
+  console.log('🏠 Using development proxy:', baseURL);
+} else {
+  // Production or live domain - use the full URL
+  baseURL = VITE_API_URL || 'https://unimarket-vtx5.onrender.com/api';
+  console.log('🚀 Using production URL:', baseURL);
+}
+
+// Final safety check - ensure we have a valid URL
+if (!baseURL || baseURL === '/api' && isLiveDomain) {
+  console.warn('⚠️ Possible misconfiguration - forcing production URL');
+  baseURL = 'https://unimarket-vtx5.onrender.com/api';
+}
+
+console.log('🔧 Environment Summary:', { 
   isDevelopment, 
   isProduction,
-  VITE_ENV: import.meta.env.VITE_ENV,
-  VITE_API_URL: import.meta.env.VITE_API_URL
+  isLiveDomain,
+  VITE_ENV,
+  VITE_API_URL,
+  finalBaseURL: baseURL
 });
-console.log('🌐 API Base URL:', baseURL);
 
 // Request queue for token refresh
 let isRefreshing = false;
@@ -43,7 +89,7 @@ const processQueue = (error, token = null) => {
 // ✅ FIXED: Use baseURL variable instead of hardcoded '/api'
 // ============================================
 const apiClient = axios.create({
-  baseURL: baseURL,  // 🔥 THIS WAS THE BUG - was '/api'
+  baseURL: baseURL,
   timeout: parseInt(import.meta.env.VITE_API_TIMEOUT || '30000'),
   headers: {
     'Content-Type': 'application/json',
@@ -52,6 +98,15 @@ const apiClient = axios.create({
 });
 
 console.log('✅ API Client created with baseURL:', apiClient.defaults.baseURL);
+
+// Test the connection
+if (!isDevelopment) {
+  console.log('🔄 Testing connection to:', baseURL);
+  fetch(`${baseURL}/health`)
+    .then(res => res.json())
+    .then(data => console.log('✅ Health check passed:', data))
+    .catch(err => console.error('❌ Health check failed:', err.message));
+}
 
 // Get CSRF token
 const getCSRFToken = () => {
@@ -67,7 +122,7 @@ const getCSRFToken = () => {
 
 // Get token from secure storage
 const getToken = () => {
-  if (!isDevelopment) {
+  if (!isDevelopment || isLiveDomain) {
     const cookies = document.cookie.split(';');
     for (let cookie of cookies) {
       const [name, value] = cookie.trim().split('=');
@@ -93,6 +148,10 @@ const getToken = () => {
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
+    // Log the FULL URL being called
+    const fullURL = `${config.baseURL}${config.url}`;
+    console.log(`🌐 REQUEST: ${config.method?.toUpperCase()} ${fullURL}`);
+    
     // Add CSRF token for mutating requests
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(config.method?.toUpperCase())) {
       const csrfToken = getCSRFToken();
@@ -111,7 +170,7 @@ apiClient.interceptors.request.use(
 
     // Log in development
     if (import.meta.env.VITE_LOG_REQUESTS === 'true') {
-      console.log(`📤 [API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+      console.log(`📤 [API] ${config.method?.toUpperCase()} ${fullURL}`);
     }
     
     return config;
@@ -141,10 +200,18 @@ apiClient.interceptors.response.use(
       fullUrl: originalRequest ? `${originalRequest.baseURL}${originalRequest.url}` : 'unknown',
       status: error.response?.status,
       message: error.message,
+      data: error.response?.data
     });
 
-    // Handle 404 errors
+    // Handle 404 errors - special logging for debugging
     if (error.response?.status === 404) {
+      console.error('🔍 404 Debug:', {
+        attemptedURL: originalRequest ? `${originalRequest.baseURL}${originalRequest.url}` : 'unknown',
+        baseURL: originalRequest?.baseURL,
+        url: originalRequest?.url,
+        method: originalRequest?.method
+      });
+      
       return Promise.reject({
         success: false,
         message: `API endpoint not found: ${originalRequest?.url}`,
@@ -176,7 +243,7 @@ apiClient.interceptors.response.use(
       
       try {
         let refreshToken;
-        if (!isDevelopment) {
+        if (!isDevelopment || isLiveDomain) {
           const cookies = document.cookie.split(';');
           for (let cookie of cookies) {
             const [name, value] = cookie.trim().split('=');
@@ -202,7 +269,7 @@ apiClient.interceptors.response.use(
           if (response?.data?.tokens) {
             const tokens = response.data.tokens;
             
-            if (!isDevelopment) {
+            if (!isDevelopment || isLiveDomain) {
               document.cookie = `accessToken=${tokens.access}; Secure; HttpOnly; SameSite=Strict; path=/`;
               document.cookie = `refreshToken=${tokens.refresh}; Secure; HttpOnly; SameSite=Strict; path=/`;
             } else {
@@ -340,6 +407,9 @@ export const api = {
   
   // Helper to get current baseURL
   getBaseURL: () => apiClient.defaults.baseURL,
+  
+  // Helper to test connection
+  testConnection: () => apiCall('GET', '/health'),
 };
 
 export default api;
