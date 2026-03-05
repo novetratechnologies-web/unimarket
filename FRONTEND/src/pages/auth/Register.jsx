@@ -208,7 +208,6 @@ export default function Register() {
     setCheckingUsername(true);
     try {
       const response = await api.get(`/auth/check-username?username=${username}`);
-      // Handle different response formats
       const available = response.data?.available ?? response.data?.success ?? false;
       setUsernameAvailable(available);
     } catch (error) {
@@ -223,13 +222,11 @@ export default function Register() {
   const checkEmailAvailability = async (email) => {
     setCheckingEmail(true);
     try {
-      // You'll need to add this endpoint to your backend
       const response = await api.get(`/auth/check-email?email=${encodeURIComponent(email)}`);
       const exists = response.data?.exists ?? response.data?.success === false;
       setEmailExists(exists);
     } catch (error) {
       console.error("Email check failed:", error);
-      // If endpoint doesn't exist, just log error
       if (error.response?.status === 404) {
         console.log("Email check endpoint not implemented");
       }
@@ -355,7 +352,6 @@ export default function Register() {
       
       console.log("Registration response:", response);
 
-      // Check for success in different response formats
       if (response.data?.success || response.success || response.data?.user) {
         const successMessage = response.data?.message || response.message || "Registration successful! Check your email for verification code.";
         
@@ -372,142 +368,13 @@ export default function Register() {
           navigate(`/verify-email?email=${encodeURIComponent(form.email.toLowerCase().trim())}`);
         }, 1500);
       } else {
-        // Handle unsuccessful response
         handleRegistrationError(response.data || response);
       }
       
     } catch (error) {
       console.error('Registration error:', error);
-      console.error('Error response:', error.response);
-      console.error('Error status:', error.response?.status);
-      console.error('Error data:', error.response?.data);
       
-      // Handle different error status codes
-      if (error.response?.status === 409) {
-        // Conflict - duplicate entry
-        const errorData = error.response.data;
-        const errorMessage = errorData.message || errorData.error || "";
-        
-        // Check for specific field conflicts
-        if (errorMessage.toLowerCase().includes('email')) {
-          setMessage({ 
-            text: "This email is already registered. Please login or use a different email.", 
-            type: "error" 
-          });
-          
-          // Offer to go to login
-          setTimeout(() => {
-            if (window.confirm("Email already exists! Would you like to go to the login page?")) {
-              navigate("/login", { 
-                state: { 
-                  email: form.email,
-                  message: "This email is already registered. Please login."
-                } 
-              });
-            }
-          }, 1000);
-          
-        } else if (errorMessage.toLowerCase().includes('username')) {
-          setMessage({ 
-            text: "This username is already taken. Please choose another.", 
-            type: "error" 
-          });
-          // Clear username field
-          setForm(prev => ({ ...prev, username: "" }));
-          
-        } else if (errorMessage.toLowerCase().includes('phone')) {
-          setMessage({ 
-            text: "This phone number is already registered. Please use another.", 
-            type: "error" 
-          });
-          
-        } else {
-          setMessage({ 
-            text: errorMessage || "Registration failed. This account may already exist.", 
-            type: "error" 
-          });
-        }
-      }
-      
-      else if (error.response?.status === 400) {
-        // Validation errors
-        const errorData = error.response.data;
-        
-        if (errorData.errors && Array.isArray(errorData.errors)) {
-          // Handle array of errors
-          const errorMessages = errorData.errors.map(err => err.msg || err.message).join('. ');
-          setMessage({ 
-            text: errorMessages || "Validation failed. Please check your inputs.", 
-            type: "error" 
-          });
-        } else if (errorData.message) {
-          setMessage({ 
-            text: errorData.message, 
-            type: "error" 
-          });
-        } else if (typeof errorData === 'string') {
-          setMessage({ 
-            text: errorData, 
-            type: "error" 
-          });
-        } else {
-          setMessage({ 
-            text: "Invalid registration data. Please check all fields.", 
-            type: "error" 
-          });
-        }
-      }
-      
-      else if (error.response?.status === 429) {
-        // Rate limiting
-        const retryAfter = error.response.headers?.['retry-after'] || 
-                          error.response.data?.retryAfter || 60;
-        
-        setMessage({ 
-          text: `Too many registration attempts. Please try again in ${retryAfter} seconds.`, 
-          type: "error" 
-        });
-        
-        setRateLimit({
-          isLimited: true,
-          retryAfter: parseInt(retryAfter)
-        });
-      }
-      
-      else if (error.response?.status === 403) {
-        setMessage({ 
-          text: "Access forbidden. Please try again later.", 
-          type: "error" 
-        });
-      }
-      
-      else if (error.response?.status >= 500) {
-        setMessage({ 
-          text: "Server error. Please try again later or contact support.", 
-          type: "error" 
-        });
-      }
-      
-      else if (error.code === 'ERR_NETWORK') {
-        setMessage({ 
-          text: "Network error. Please check your internet connection and try again.", 
-          type: "error" 
-        });
-      }
-      
-      else {
-        // Generic error
-        const errorMessage = error.response?.data?.message || 
-                            error.response?.data?.error || 
-                            error.message ||
-                            "An unexpected error occurred. Please try again.";
-        
-        setMessage({ 
-          text: errorMessage, 
-          type: "error" 
-        });
-      }
-      
+      handleRegistrationError(error.response?.data || error);
     } finally {
       setLoading(false);
     }
@@ -553,11 +420,8 @@ export default function Register() {
       setGoogleLoading(true);
       setMessage({ text: "", type: "" });
       
-      const isDevelopment = import.meta.env.VITE_ENV === 'development';
-      const baseURL = isDevelopment ? '/api' : import.meta.env.VITE_API_URL;
-      const apiUrl = baseURL || 'http://localhost:5000/api';
-      
-      window.location.href = `${apiUrl}/auth/google`;
+      // 🔥 FIXED: Production Google Auth URL
+      window.location.href = `https://unimarket-vtx5.onrender.com/api/auth/google`;
     } catch (error) {
       setMessage({ 
         text: "Google authentication failed. Please try again.", 

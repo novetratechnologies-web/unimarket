@@ -4,7 +4,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { FcGoogle } from "react-icons/fc";
 import { FiEye, FiEyeOff, FiMail, FiLock } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext"; 
-import config from "../../config/env";
 import logo from "../../assets/uni_logo.png";
 
 export default function Login() {
@@ -14,14 +13,14 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
-  const [submitted, setSubmitted] = useState(false); // ✅ NEW: Prevent double submission
+  const [submitted, setSubmitted] = useState(false);
   
   const navigate = useNavigate();
   const { login, googleLogin } = useAuth();
-  const formRef = useRef(null); // ✅ NEW: Reference to form
-  const redirectTimeoutRef = useRef(null); // ✅ NEW: Cleanup redirect timeout
+  const formRef = useRef(null);
+  const redirectTimeoutRef = useRef(null);
 
-  // ✅ NEW: Cleanup timeouts on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (redirectTimeoutRef.current) {
@@ -30,11 +29,18 @@ export default function Login() {
     };
   }, []);
 
-  // ✅ FIXED: handleSubmit with double submission prevention
+  // Reset form state when component unmounts
+  useEffect(() => {
+    return () => {
+      setSubmitted(false);
+      setLoading(false);
+    };
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // 🛑 CRITICAL: Prevent multiple submissions
+    // Prevent multiple submissions
     if (submitted || loading) {
       console.log('⚠️ Form already submitted, preventing duplicate');
       return;
@@ -56,11 +62,10 @@ export default function Login() {
 
     try {
       setLoading(true);
-      setSubmitted(true); // ✅ Mark as submitted
+      setSubmitted(true);
       
       console.log('🔐 Starting login process...', { email });
       
-      // Use the login function from AuthContext
       const result = await login(email, password);
       
       console.log('✅ Login result:', result);
@@ -72,30 +77,24 @@ export default function Login() {
           type: "warning" 
         });
         
-        // Clear redirect timeout
         if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
         
-        // Redirect to verification page
         redirectTimeoutRef.current = setTimeout(() => {
           navigate(`/verify-email?email=${encodeURIComponent(email)}`);
         }, 1500);
         return;
       }
       
-      // ✅ SUCCESS - Immediate redirect without showing success message
-      // (Success message causes unnecessary re-renders)
+      // ✅ SUCCESS - Redirect to dashboard
       console.log('🎉 Login successful, redirecting to dashboard...');
       
-      // Use replace instead of navigate to prevent back button issues
-      // and avoid triggering additional requests
       redirectTimeoutRef.current = setTimeout(() => {
-        window.location.href = '/'; // Hard redirect to prevent React Router issues
-      }, 100); // Short delay for better UX
+        window.location.href = '/dashboard'; // 🔥 Changed from '/' to '/dashboard'
+      }, 100);
       
     } catch (err) {
       console.error("❌ Login error:", err);
       
-      // Reset submission state on error
       setSubmitted(false);
       
       // Handle email verification requirement
@@ -105,7 +104,6 @@ export default function Login() {
           type: "warning" 
         });
         
-        // Store email and redirect
         sessionStorage.setItem('pending_verification_email', email);
         
         if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
@@ -141,13 +139,11 @@ export default function Login() {
       });
     } finally {
       setLoading(false);
-      // Don't reset submitted on success - keep it true to prevent double submission
-      // Only reset on error
     }
   };
 
   const handleGoogleLogin = async () => {
-    // 🛑 Prevent multiple Google login attempts
+    // Prevent multiple Google login attempts
     if (googleLoading) return;
     
     try {
@@ -178,36 +174,6 @@ export default function Login() {
     return email && password && isValidEmail(email) && !loading && !submitted;
   };
 
-  const handleDemoLogin = () => {
-    // 🛑 Prevent demo login if already loading
-    if (loading || submitted) return;
-    
-    // Demo credentials for testing
-    const demoCredentials = {
-      email: "example@gmail.com",
-      password: "strong"
-    };
-    
-    setEmail(demoCredentials.email);
-    setPassword(demoCredentials.password);
-    
-    // Auto-submit after a delay
-    setTimeout(() => {
-      if (formRef.current) {
-        const submitEvent = new Event('submit', { cancelable: true, bubbles: true });
-        formRef.current.dispatchEvent(submitEvent);
-      }
-    }, 500);
-  };
-
-  // ✅ NEW: Reset form state when component unmounts or route changes
-  useEffect(() => {
-    return () => {
-      setSubmitted(false);
-      setLoading(false);
-    };
-  }, []);
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-50 via-white to-cyan-100 px-4 py-8">
       <div className="bg-white shadow-xl rounded-3xl p-8 w-full max-w-md border border-teal-100">
@@ -230,7 +196,7 @@ export default function Login() {
           ref={formRef} 
           onSubmit={handleSubmit} 
           className="space-y-5"
-          noValidate // ✅ Prevent browser validation that might cause double submission
+          noValidate
         >
           {/* Email Field */}
           <div>
@@ -389,19 +355,6 @@ export default function Login() {
           )}
         </button>
 
-        {/* Demo Login Button (for testing) */}
-        {config.isDevelopment && (
-          <div className="mt-4">
-            <button
-              onClick={handleDemoLogin}
-              disabled={loading || submitted}
-              className="w-full py-2 rounded-lg font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-all duration-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Try Demo Account
-            </button>
-          </div>
-        )}
-
         {/* Registration Link */}
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">
@@ -419,15 +372,6 @@ export default function Login() {
             By signing in, you agree to our Terms and Conditions
           </p>
         </div>
-
-        {/* Environment Indicator (for debugging) */}
-        {config.isDevelopment && (
-          <div className="mt-4 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
-            <p className="text-xs text-yellow-700 text-center">
-              <strong>Development Mode</strong> • API: {config.api.baseURL}
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );
