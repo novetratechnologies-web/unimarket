@@ -17,6 +17,7 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import csrf from 'csurf';
 import os from 'os';
+import { ipKeyGenerator } from 'express-rate-limit';
 
 // ============================================
 // ✅ IMPORT MIDDLEWARE
@@ -266,7 +267,7 @@ app.use(cors({
 }));
 
 // Handle preflight requests explicitly
-app.options('*', cors());
+app.options('/', cors());
 
 // ============================================
 // ENHANCED RESOURCE MONITORING
@@ -282,7 +283,14 @@ const globalLimiter = rateLimit({
   message: { success: false, message: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.user?._id || req.ip,
+  keyGenerator: (req) => {
+    // For authenticated users, use their ID
+    if (req.user?._id) {
+      return `user:${req.user._id}`;
+    }
+    // For unauthenticated users, use ipKeyGenerator to handle IPv6 safely
+    return `ip:${ipKeyGenerator(req.ip)}`;
+  },
   skip: (req) => req.user?.role === 'super_admin',
 });
 
