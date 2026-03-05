@@ -1,5 +1,5 @@
 // server.js - FIXED VERSION
-import './disable-natural-redis.js';
+// REMOVE THIS LINE: import './disable-natural-redis.js';
 import http from 'http';
 import dotenv from "dotenv";
 dotenv.config();
@@ -10,8 +10,6 @@ import mongoose from "mongoose";
 import { initializeSocket } from './config/websocket.js';
 import passport from "passport";
 import os from 'os';
-
-
 
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -37,25 +35,23 @@ const startServer = async () => {
     console.log('✅ MongoDB connected successfully');
 
     // Add to your server.js right after MongoDB connects
-setInterval(async () => {
-  try {
-    // Method 1: Check server status for connection count
-    const status = await mongoose.connection.db.admin().serverStatus();
-    console.log(`\n📊 MongoDB Server Status:`);
-    console.log(`   Current connections: ${status.connections?.current || 0}`);
-    console.log(`   Available connections: ${status.connections?.available || 0}`);
-    console.log(`   Total created: ${status.connections?.totalCreated || 0}`);
-    
-    // Method 2: Check current operations
-    const ops = await mongoose.connection.db.admin().command({ currentOp: 1 });
-    console.log(`   Active operations: ${ops.inprog?.length || 0}`);
-    
-  } catch (err) {
-    console.log('❌ Status check failed:', err.message);
-  }
-}, 5000);
-
-    
+    setInterval(async () => {
+      try {
+        // Method 1: Check server status for connection count
+        const status = await mongoose.connection.db.admin().serverStatus();
+        console.log(`\n📊 MongoDB Server Status:`);
+        console.log(`   Current connections: ${status.connections?.current || 0}`);
+        console.log(`   Available connections: ${status.connections?.available || 0}`);
+        console.log(`   Total created: ${status.connections?.totalCreated || 0}`);
+        
+        // Method 2: Check current operations
+        const ops = await mongoose.connection.db.admin().command({ currentOp: 1 });
+        console.log(`   Active operations: ${ops.inprog?.length || 0}`);
+        
+      } catch (err) {
+        console.log('❌ Status check failed:', err.message);
+      }
+    }, 5000);
 
     // 2. Initialize session with the mongoose connection
     console.log('🔄 Initializing session store...');

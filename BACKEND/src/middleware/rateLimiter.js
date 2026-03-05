@@ -12,29 +12,45 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // Redis client for production (optional but recommended)
 let redisClient = null;
+let redisConnected = false;
+
 if (isProduction && process.env.REDIS_URL) {
   try {
     redisClient = new Redis(process.env.REDIS_URL, {
-      enableOfflineQueue: false,
-      maxRetriesPerRequest: null,
+      enableOfflineQueue: true, // 🔥 CHANGE THIS TO TRUE
+      maxRetriesPerRequest: 3,
       retryStrategy: (times) => {
-        if (times > 3) {
-          console.error('❌ Redis connection failed after 3 retries');
+        if (times > 5) {
+          console.error('❌ Redis connection failed after 5 retries');
           return null; // Stop retrying
         }
         return Math.min(times * 100, 3000);
-      }
+      },
+      lazyConnect: true // Don't connect immediately
     });
 
     redisClient.on('error', (err) => {
       console.error('❌ Redis error:', err);
+      redisConnected = false;
     });
 
     redisClient.on('connect', () => {
       console.log('✅ Redis connected for rate limiting');
+      redisConnected = true;
+    });
+
+    redisClient.on('close', () => {
+      console.log('⚠️ Redis connection closed');
+      redisConnected = false;
+    });
+
+    // Connect manually
+    redisClient.connect().catch(err => {
+      console.error('❌ Failed to connect to Redis:', err);
+      redisClient = null;
     });
   } catch (error) {
-    console.error('❌ Failed to connect to Redis:', error);
+    console.error('❌ Failed to create Redis client:', error);
     redisClient = null;
   }
 }
@@ -108,10 +124,8 @@ export const rateLimiter = (options = {}) => {
       }
       
       // ✅ CORRECT FIX: For unauthenticated users, use ipKeyGenerator to handle IPv6 safely
-      // This satisfies the library's validation while still using your fingerprint approach
       const safeIp = ipKeyGenerator(req.ip);
       
-      // You can still enhance it with your fingerprint for better distribution
       const userAgent = req.headers['user-agent'] || 'unknown';
       const acceptLang = req.headers['accept-language'] || 'unknown';
       const timeWindow = Math.floor(Date.now() / (5 * 60 * 1000)); // 5-minute windows
@@ -143,7 +157,7 @@ export const rateLimiter = (options = {}) => {
         return true;
       }
       
-      // Skip for whitelisted IPs (add your office IPs, etc.)
+      // Skip for whitelisted IPs
       const whitelistedIPs = process.env.WHITELISTED_IPS?.split(',') || [];
       if (whitelistedIPs.includes(ipKeyGenerator(req.ip))) {
         return true;
@@ -156,7 +170,7 @@ export const rateLimiter = (options = {}) => {
     handler: (req, res, next, options) => {
       const retryAfter = Math.ceil(options.windowMs / 1000 / 60); // minutes
       
-      // Log rate limit hits (important for monitoring)
+      // Log rate limit hits
       console.warn(`⚠️ Rate limit exceeded:`, {
         ip: req.ip,
         userId: req.user?._id,
@@ -166,7 +180,6 @@ export const rateLimiter = (options = {}) => {
         retryAfter: `${retryAfter} minutes`
       });
 
-      // Send rate limit response
       res.status(429).json({
         success: false,
         message: options.message.message || 'Too many requests, please try again later',
@@ -177,37 +190,35 @@ export const rateLimiter = (options = {}) => {
       });
     },
     
-    // Skip failed requests (optional - don't count failed requests against limit)
     skipFailedRequests: false,
-    
-    // Skip successful requests (optional - don't count successful requests against limit)
     skipSuccessfulRequests: false,
-    
-    // Request property name to store rate limit info
     requestPropertyName: 'rateLimit',
-    
-    // Status code to return when rate limit is exceeded
     statusCode: 429
   };
 
   // Merge with user options
   const config = { ...defaultOptions, ...options };
 
-  // 🔥 FIXED: Use Redis store in production with proper configuration
-  if (isProduction && redisClient && !config.store) {
-    // For rate-limit-redis v4+, use sendCommand
-    config.store = new RedisStore({
-      // Use sendCommand for Redis compatibility (not sendCommandCluster)
-      sendCommand: (...args) => redisClient.call(...args),
-      prefix: `rl:${config.prefix || 'global'}:`,
-    });
-
-    console.log(`✅ Using Redis store for rate limiting: ${config.prefix || 'global'}`);
+  // 🔥 FIXED: Only use Redis store if client exists AND is connected
+  if (isProduction && redisClient && redisConnected && !config.store) {
+    try {
+      config.store = new RedisStore({
+        sendCommand: (...args) => redisClient.call(...args),
+        prefix: `rl:${config.prefix || 'global'}:`,
+      });
+      console.log(`✅ Using Redis store for rate limiting: ${config.prefix || 'global'}`);
+    } catch (error) {
+      console.error(`❌ Failed to create Redis store:`, error);
+      // Fall back to memory store
+      console.warn('⚠️ Falling back to memory store');
+    }
+  } else if (isProduction && redisClient && !redisConnected) {
+    console.warn('⚠️ Redis not connected yet, using memory store initially');
   } else if (isProduction && !redisClient) {
-    console.warn('⚠️ Redis not available, using memory store (not recommended for production with multiple instances)');
+    console.warn('⚠️ Redis not available, using memory store');
   }
 
-  // Remove any invalid options that might cause issues
+  // Remove any invalid options
   const { prefix, ...cleanConfig } = config;
 
   return rateLimit(cleanConfig);
@@ -217,29 +228,28 @@ export const rateLimiter = (options = {}) => {
  * Auth rate limiter - For authentication endpoints
  */
 export const authLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 30 * 60 * 1000, // 1 min in dev, 30 min in prod
-  max: isDevelopment ? 100 : 10, // 100 in dev, 10 in prod
+  windowMs: isDevelopment ? 60 * 1000 : 30 * 60 * 1000,
+  max: isDevelopment ? 100 : 10,
   message: {
     success: false,
     message: 'Too many authentication attempts, please try again later',
     code: 'AUTH_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'auth',
-  skipSuccessfulRequests: true, // Don't count successful logins
+  skipSuccessfulRequests: true,
   keyGenerator: (req) => {
-    // Combine email and fingerprint for more precise limiting
     const email = req.body?.email || 'anonymous';
-    const fingerprint = generateFingerprint(req, false); // Don't include time for auth
+    const fingerprint = generateFingerprint(req, false);
     return `auth:${email}:${fingerprint}`;
   }
 });
 
 /**
- * STRICT Auth rate limiter - For sensitive operations (password reset, etc.)
+ * STRICT Auth rate limiter - For sensitive operations
  */
 export const strictAuthLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 2 * 60 * 60 * 1000, // 1 min in dev, 2 hours in prod
-  max: isDevelopment ? 50 : 5, // 50 in dev, 5 in prod
+  windowMs: isDevelopment ? 60 * 1000 : 2 * 60 * 60 * 1000,
+  max: isDevelopment ? 50 : 5,
   message: {
     success: false,
     message: 'Too many sensitive authentication attempts, please try again later',
@@ -255,17 +265,11 @@ export const strictAuthLimiter = rateLimiter({
 });
 
 /**
- * ============================================
- * UPDATED LIMITERS FOR DASHBOARD (Higher limits)
- * ============================================
- */
-
-/**
- * API rate limiter - General API endpoints (INCREASED LIMITS)
+ * API rate limiter - General API endpoints
  */
 export const apiLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000, // 1 min in dev, 5 min in prod
-  max: isDevelopment ? 1000 : 300, // Increased from 200 to 300
+  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000,
+  max: isDevelopment ? 1000 : 300,
   message: {
     success: false,
     message: 'Too many API requests, please slow down',
@@ -275,20 +279,18 @@ export const apiLimiter = rateLimiter({
 });
 
 /**
- * Admin rate limiter - For admin endpoints (INCREASED LIMITS)
+ * Admin rate limiter
  */
 export const adminLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000, // 1 min in dev, 5 min in prod
-  max: isDevelopment ? 1000 : 800, // Increased from 500 to 800
+  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000,
+  max: isDevelopment ? 1000 : 800,
   message: {
     success: false,
     message: 'Too many admin requests, please slow down',
     code: 'ADMIN_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'admin',
-  // Admin endpoints should still be limited but higher
   skip: (req) => {
-    // Skip for super admins in development
     if (isDevelopment && req.user?.role === 'super_admin') {
       return true;
     }
@@ -297,11 +299,11 @@ export const adminLimiter = rateLimiter({
 });
 
 /**
- * Public rate limiter - For public endpoints (products, categories, etc.)
+ * Public rate limiter
  */
 export const publicLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000, // 1 min in dev, 5 min in prod
-  max: isDevelopment ? 500 : 400, // Increased from 300 to 400
+  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000,
+  max: isDevelopment ? 500 : 400,
   message: {
     success: false,
     message: 'Too many requests, please try again later',
@@ -311,48 +313,38 @@ export const publicLimiter = rateLimiter({
 });
 
 /**
- * ============================================
- * NEW DASHBOARD-SPECIFIC LIMITERS
- * ============================================
- */
-
-/**
- * DASHBOARD LIMITER - Very high limits for dashboard endpoints
- * Dashboard typically makes 10-20 API calls on load
+ * DASHBOARD LIMITER
  */
 export const dashboardLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000, // 1 minute
-  max: isDevelopment ? 1000 : 500, // 500 requests per minute
+  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
+  max: isDevelopment ? 1000 : 500,
   message: {
     success: false,
     message: 'Too many dashboard requests, please slow down',
     code: 'DASHBOARD_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'dashboard',
-  // 🔥 FIXED: Use fingerprint instead of IP for unauthenticated
   keyGenerator: (req) => {
     if (req.user?._id) {
       return `dashboard:user:${req.user._id.toString()}`;
     }
-    // Use fingerprint instead of IP
     const fingerprint = generateFingerprint(req, true);
     return `dashboard:fp:${fingerprint}`;
   }
 });
 
 /**
- * NOTIFICATION LIMITER - For notification endpoints
+ * NOTIFICATION LIMITER
  */
 export const notificationLimiter = rateLimiter({
-  windowMs: isDevelopment ? 30 * 1000 : 30 * 1000, // 30 seconds
-  max: isDevelopment ? 500 : 100, // 100 requests per 30 seconds
+  windowMs: isDevelopment ? 30 * 1000 : 30 * 1000,
+  max: isDevelopment ? 500 : 100,
   message: {
     success: false,
     message: 'Too many notification requests, please slow down',
     code: 'NOTIFICATION_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'notification',
-  // 🔥 FIXED: Use fingerprint
   keyGenerator: (req) => {
     if (req.user?._id) return `notification:user:${req.user._id}`;
     const fingerprint = generateFingerprint(req, true);
@@ -361,18 +353,17 @@ export const notificationLimiter = rateLimiter({
 });
 
 /**
- * ACTIVITY LIMITER - For activity feed
+ * ACTIVITY LIMITER
  */
 export const activityLimiter = rateLimiter({
-  windowMs: isDevelopment ? 30 * 1000 : 30 * 1000, // 30 seconds
-  max: isDevelopment ? 500 : 150, // 150 requests per 30 seconds
+  windowMs: isDevelopment ? 30 * 1000 : 30 * 1000,
+  max: isDevelopment ? 500 : 150,
   message: {
     success: false,
     message: 'Too many activity requests, please slow down',
     code: 'ACTIVITY_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'activity',
-  // 🔥 FIXED: Use fingerprint
   keyGenerator: (req) => {
     if (req.user?._id) return `activity:user:${req.user._id}`;
     const fingerprint = generateFingerprint(req, true);
@@ -381,18 +372,17 @@ export const activityLimiter = rateLimiter({
 });
 
 /**
- * ORDER LIMITER - For order-related endpoints
+ * ORDER LIMITER
  */
 export const orderLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000, // 1 minute
-  max: isDevelopment ? 1000 : 300, // 300 requests per minute
+  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
+  max: isDevelopment ? 1000 : 300,
   message: {
     success: false,
     message: 'Too many order requests, please slow down',
     code: 'ORDER_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'order',
-  // 🔥 FIXED: Use fingerprint
   keyGenerator: (req) => {
     if (req.user?._id) return `order:user:${req.user._id}`;
     const fingerprint = generateFingerprint(req, true);
@@ -401,18 +391,17 @@ export const orderLimiter = rateLimiter({
 });
 
 /**
- * PRODUCT LIMITER - For product-related endpoints
+ * PRODUCT LIMITER
  */
 export const productLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000, // 1 minute
-  max: isDevelopment ? 1000 : 400, // 400 requests per minute
+  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
+  max: isDevelopment ? 1000 : 400,
   message: {
     success: false,
     message: 'Too many product requests, please slow down',
     code: 'PRODUCT_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'product',
-  // 🔥 FIXED: Use fingerprint
   keyGenerator: (req) => {
     if (req.user?._id) return `product:user:${req.user._id}`;
     const fingerprint = generateFingerprint(req, true);
@@ -421,18 +410,17 @@ export const productLimiter = rateLimiter({
 });
 
 /**
- * USER LIMITER - For user-specific endpoints (profile, settings)
+ * USER LIMITER
  */
 export const userLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000, // 1 minute
-  max: isDevelopment ? 1000 : 200, // 200 requests per minute
+  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
+  max: isDevelopment ? 1000 : 200,
   message: {
     success: false,
     message: 'Too many user requests, please slow down',
     code: 'USER_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'user',
-  // 🔥 FIXED: Use fingerprint
   keyGenerator: (req) => {
     if (req.user?._id) return `user:${req.user._id}`;
     const fingerprint = generateFingerprint(req, true);
@@ -440,36 +428,32 @@ export const userLimiter = rateLimiter({
   }
 });
 
-// ============================================
-// EXISTING LIMITERS (UPDATED with fingerprint)
-// ============================================
-
 /**
- * Login rate limiter - Email + fingerprint based
+ * Login rate limiter
  */
 export const loginLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 30 * 60 * 1000, // 1 min in dev, 30 min in prod
-  max: isDevelopment ? 100 : 10, // 100 in dev, 10 in prod
+  windowMs: isDevelopment ? 60 * 1000 : 30 * 60 * 1000,
+  max: isDevelopment ? 100 : 10,
   message: {
     success: false,
     message: 'Too many login attempts, please try again later',
     code: 'LOGIN_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'login',
-  skipSuccessfulRequests: true, // Don't count successful logins
+  skipSuccessfulRequests: true,
   keyGenerator: (req) => {
     const email = req.body?.email || 'anonymous';
-    const fingerprint = generateFingerprint(req, false); // Don't include time for auth
+    const fingerprint = generateFingerprint(req, false);
     return `login:${email}:${fingerprint}`;
   }
 });
 
 /**
- * Registration rate limiter - Prevent spam registrations
+ * Registration rate limiter
  */
 export const registerLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 24 * 60 * 60 * 1000, // 1 min in dev, 24 hours in prod
-  max: isDevelopment ? 50 : 5, // 50 in dev, 5 in prod
+  windowMs: isDevelopment ? 60 * 1000 : 24 * 60 * 60 * 1000,
+  max: isDevelopment ? 50 : 5,
   message: {
     success: false,
     message: 'Too many registration attempts, please try again later',
@@ -487,8 +471,8 @@ export const registerLimiter = rateLimiter({
  * Password reset rate limiter
  */
 export const passwordResetLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 2 * 60 * 60 * 1000, // 1 min in dev, 2 hours in prod
-  max: isDevelopment ? 50 : 5, // 50 in dev, 5 in prod
+  windowMs: isDevelopment ? 60 * 1000 : 2 * 60 * 60 * 1000,
+  max: isDevelopment ? 50 : 5,
   message: {
     success: false,
     message: 'Too many password reset attempts, please try again later',
@@ -506,8 +490,8 @@ export const passwordResetLimiter = rateLimiter({
  * File upload rate limiter
  */
 export const uploadLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 24 * 60 * 60 * 1000, // 1 min in dev, 24 hours in prod
-  max: isDevelopment ? 200 : 50, // 200 in dev, 50 in prod
+  windowMs: isDevelopment ? 60 * 1000 : 24 * 60 * 60 * 1000,
+  max: isDevelopment ? 200 : 50,
   message: {
     success: false,
     message: 'Too many upload attempts, please try again later',
@@ -525,8 +509,8 @@ export const uploadLimiter = rateLimiter({
  * Email verification rate limiter
  */
 export const emailVerificationLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 60 * 1000, // 1 min in dev, 1 hour in prod
-  max: isDevelopment ? 50 : 3, // 50 in dev, 3 in prod
+  windowMs: isDevelopment ? 60 * 1000 : 60 * 60 * 1000,
+  max: isDevelopment ? 50 : 3,
   message: {
     success: false,
     message: 'Too many verification attempts, please try again later',
@@ -542,20 +526,16 @@ export const emailVerificationLimiter = rateLimiter({
 
 /**
  * Create custom rate limiter with options
- * @param {Object} options - Rate limiter options
- * @returns {Function} Express middleware
  */
 export const createRateLimiter = (options) => {
   return rateLimiter(options);
 };
 
 /**
- * Get rate limit status for a key (useful for debugging)
- * @param {string} key - Rate limit key
- * @returns {Promise<Object>} Rate limit status
+ * Get rate limit status for a key
  */
 export const getRateLimitStatus = async (key) => {
-  if (!redisClient) {
+  if (!redisClient || !redisConnected) {
     return { error: 'Redis not available' };
   }
   
@@ -573,12 +553,10 @@ export const getRateLimitStatus = async (key) => {
 };
 
 /**
- * Reset rate limit for a key (admin only)
- * @param {string} key - Rate limit key
- * @returns {Promise<boolean>} Success status
+ * Reset rate limit for a key
  */
 export const resetRateLimit = async (key) => {
-  if (!redisClient) {
+  if (!redisClient || !redisConnected) {
     return false;
   }
   
@@ -599,7 +577,6 @@ export const bypassRateLimiter = (req, res, next) => {
     return next();
   }
   
-  // In production, only bypass for whitelisted IPs
   const whitelistedIPs = process.env.WHITELISTED_IPS?.split(',') || [];
   if (whitelistedIPs.includes(ipKeyGenerator(req.ip))) {
     return next();
@@ -609,4 +586,4 @@ export const bypassRateLimiter = (req, res, next) => {
 };
 
 // Export Redis client for use elsewhere
-export { redisClient };
+export { redisClient, redisConnected };

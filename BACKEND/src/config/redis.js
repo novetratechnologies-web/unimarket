@@ -30,6 +30,7 @@ const redisConfig = {
   
   commandsQueueMaxLength: parseInt(process.env.REDIS_COMMANDS_QUEUE_MAX_LENGTH) || 5000,
   
+  // 🔥 IMPORTANT: This must be false to match rate-limit-redis expectations
   disableOfflineQueue: false,
   
   pingInterval: 1000
@@ -84,7 +85,7 @@ const connectRedis = async () => {
     return true;
   } catch (error) {
     console.error('❌ Failed to connect to Redis:', error);
-    console.log('⚠️ Continuing without Redis - caching will be disabled');
+    console.log('⚠️ Continuing without Redis - rate limiting will use memory store');
     
     // Replace with mock client if connection fails
     if (!client.isMock) {
@@ -102,6 +103,38 @@ function createMockClient() {
   
   return {
     isMock: true,
+    
+    // 🔥 ADDED: Call method for rate-limit-redis compatibility
+    call: async (command, ...args) => {
+      console.log(`📝 Mock Redis command: ${command}`, args);
+      
+      // Basic command implementation
+      switch (command.toUpperCase()) {
+        case 'GET':
+          return mockStorage.get(args[0]) || null;
+        case 'SET':
+          mockStorage.set(args[0], args[1]);
+          return 'OK';
+        case 'DEL':
+          if (Array.isArray(args[0])) {
+            args[0].forEach(key => mockStorage.delete(key));
+            return args[0].length;
+          }
+          return mockStorage.delete(args[0]) ? 1 : 0;
+        case 'INCR':
+          const val = (parseInt(mockStorage.get(args[0])) || 0) + 1;
+          mockStorage.set(args[0], val.toString());
+          return val;
+        case 'EXPIRE':
+          return 1;
+        case 'TTL':
+          return -1;
+        case 'PING':
+          return 'PONG';
+        default:
+          return null;
+      }
+    },
     
     // Connection methods
     connect: async () => true,
