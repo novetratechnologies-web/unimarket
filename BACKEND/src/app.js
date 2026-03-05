@@ -1,4 +1,4 @@
-// app.js - FULLY OPTIMIZED WITH ENHANCED RESOURCE MONITOR
+// app.js - FULLY OPTIMIZED FOR RENDER + VERCEL
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -19,7 +19,7 @@ import csrf from 'csurf';
 import os from 'os';
 
 // ============================================
-// ✅ IMPORT MIDDLEWARE - FIXED
+// ✅ IMPORT MIDDLEWARE
 // ============================================
 import resourceMonitor from './middleware/resourceMonitor.js';
 import {
@@ -30,7 +30,6 @@ import {
   clearMetrics 
 } from './middleware/resourceMonitor.js';
 
-// ❌ REMOVED: queueMiddleware was causing hanging requests
 import { requestTimeoutMiddleware, connectionTracker } from './middleware/timeoutHandler.js';
 import { connectionMonitor, getConnectionStatus } from './middleware/connectionMonitor.js';
 import {payloadLimiter} from './middleware/payloadLimiter.js';
@@ -63,10 +62,26 @@ const logger = createModuleLogger('App');
 const app = express();
 
 // ============================================
-// CONSTANTS
+// ENVIRONMENT DETECTION
 // ============================================
 const isProduction = process.env.NODE_ENV === 'production';
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+const isRender = process.env.RENDER === 'true' || process.env.IS_RENDER === 'true';
+const isVercel = process.env.VERCEL === 'true';
+
+console.log('🌍 Environment:', {
+  NODE_ENV: process.env.NODE_ENV,
+  isProduction,
+  isRender,
+  isVercel,
+  PORT: process.env.PORT,
+  RENDER_EXTERNAL_URL: process.env.RENDER_EXTERNAL_URL
+});
+
+// ============================================
+// CONSTANTS WITH RENDER SUPPORT
+// ============================================
+const CLIENT_URL = process.env.CLIENT_URL || 
+                   (isRender ? 'https://unimarket-vtx5.onrender.com' : 'http://localhost:5173');
 const ADMIN_URL = process.env.ADMIN_URL || 'http://localhost:5174';
 const VENDOR_URL = process.env.VENDOR_URL || 'http://localhost:5175';
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/unimarket';
@@ -92,7 +107,7 @@ const getNetworkIPs = () => {
 const networkIPs = getNetworkIPs();
 
 // ============================================
-// CORS CONFIGURATION - WITH ALL NETWORK IPS
+// CORS CONFIGURATION - RENDER + VERCEL FRIENDLY
 // ============================================
 const cleanUrl = (url) => {
   if (!url) return null;
@@ -112,9 +127,23 @@ const baseOrigins = [
   'http://127.0.0.1:5175',
   'http://localhost:3000',
   'http://localhost:5000',
+
+ 
+  'https://unimatket.store',
+  'https://unimarket-bodv51ojg-novetratechnologies-webs-projects.vercel.app/', // REPLACE WITH YOUR ACTUAL VERCEL URL
+  'https://unimarket-bodv51ojg-novetratechnologies-webs-projects.vercel.app/', // Example
+
+   'http://unimatket.store',
+  'http://unimarket-bodv51ojg-novetratechnologies-webs-projects.vercel.app/', // REPLACE WITH YOUR ACTUAL VERCEL URL
+  'http://unimarket-bodv51ojg-novetratechnologies-webs-projects.vercel.app/', // Example
 ];
 
-// Add all network IPs
+// Add Render URL if in production
+if (isRender) {
+  baseOrigins.push(process.env.RENDER_EXTERNAL_URL || 'https://unimarket-vtx5.onrender.com');
+}
+
+// Add all network IPs for local development
 const networkOrigins = [];
 networkIPs.forEach(ip => {
   networkOrigins.push(`http://${ip}:5173`);
@@ -125,11 +154,15 @@ networkIPs.forEach(ip => {
 // Combine all origins
 const allowedOrigins = [...new Set([...baseOrigins, ...networkOrigins].filter(Boolean))];
 
+console.log('✅ Allowed CORS origins:', allowedOrigins);
+
 // ============================================
-// TRUST PROXY
+// TRUST PROXY - CRITICAL FOR RENDER
 // ============================================
-if (isProduction) {
+if (isProduction || isRender) {
+  // Trust first proxy (Render uses proxies)
   app.set('trust proxy', 1);
+  console.log('🔄 Trust proxy enabled for Render');
 }
 
 // ============================================
@@ -149,8 +182,8 @@ app.use(helmet({
       frameSrc: ["'none'"],
     },
   },
-  crossOriginEmbedderPolicy: isProduction,
-  crossOriginOpenerPolicy: { policy: "same-origin" },
+  crossOriginEmbedderPolicy: false, // Disable for Render compatibility
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   crossOriginResourcePolicy: { policy: "cross-origin" },
   dnsPrefetchControl: { allow: false },
   frameguard: { action: "deny" },
@@ -176,21 +209,45 @@ app.use(connectionTracker);
 app.use('/api', payloadLimiter);
 
 // ============================================
-// CORS MIDDLEWARE
+// CORS MIDDLEWARE - RENDER OPTIMIZED
 // ============================================
 app.use(cors({
   origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    if (!isProduction && origin.includes('localhost')) return callback(null, true);
+    
+    // Check if origin is allowed
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Allow localhost in development
+    if (!isProduction && origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    
+    // Allow network IPs in development
     if (!isProduction) {
       const isNetworkIP = networkIPs.some(ip => origin.includes(ip));
       if (isNetworkIP) return callback(null, true);
     }
+    
+    // Allow Vercel domains
+    if (origin.includes('vercel.app')) {
+      logger.info('✅ Allowing Vercel origin:', origin);
+      return callback(null, true);
+    }
+    
+    // Allow Render domains
+    if (origin.includes('onrender.com')) {
+      logger.info('✅ Allowing Render origin:', origin);
+      return callback(null, true);
+    }
+    
     logger.warn('❌ CORS blocked origin:', origin);
     callback(new Error('Not allowed by CORS'));
   },
-  credentials: true,
+  credentials: true, // CRITICAL for cookies/auth
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token',
@@ -207,6 +264,9 @@ app.use(cors({
   preflightContinue: false,
   optionsSuccessStatus: 204
 }));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
 
 // ============================================
 // ENHANCED RESOURCE MONITORING
@@ -295,10 +355,10 @@ app.use((req, res, next) => {
 });
 
 // ============================================
-// SESSION CONFIGURATION
+// SESSION CONFIGURATION - RENDER OPTIMIZED
 // ============================================
 export const initializeSession = (mongooseConnection) => {
-  return session({
+  const sessionConfig = {
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
@@ -310,18 +370,31 @@ export const initializeSession = (mongooseConnection) => {
       crypto: { secret: process.env.SESSION_ENCRYPTION_KEY || SESSION_SECRET }
     }),
     cookie: {
-      secure: isProduction,
+      secure: isProduction || isRender, // Use secure in production/Render
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000,
-      sameSite: isProduction ? 'strict' : 'lax',
-      domain: isProduction ? process.env.DOMAIN : undefined,
+      sameSite: isProduction ? 'none' : 'lax', // 'none' allows cross-site (Vercel -> Render)
       path: '/',
       signed: true
     },
     name: 'sid',
     rolling: true,
     unset: 'destroy'
+  };
+
+  // Add domain only if explicitly set
+  if (process.env.COOKIE_DOMAIN) {
+    sessionConfig.cookie.domain = process.env.COOKIE_DOMAIN;
+  }
+
+  console.log('🍪 Session config:', {
+    secure: sessionConfig.cookie.secure,
+    sameSite: sessionConfig.cookie.sameSite,
+    isProduction,
+    isRender
   });
+
+  return session(sessionConfig);
 };
 
 // ============================================
@@ -339,7 +412,10 @@ setupJWTStrategy();
 if (!isProduction) {
   app.use(morgan('dev'));
 } else {
-  app.use(morgan('combined', { skip: (req, res) => res.statusCode < 400 }));
+  app.use(morgan('combined', { 
+    skip: (req, res) => res.statusCode < 400,
+    stream: { write: (message) => logger.info(message.trim()) }
+  }));
 }
 
 app.use((req, res, next) => {
@@ -389,6 +465,7 @@ app.get('/health', (req, res) => {
     environment: process.env.NODE_ENV,
     uptime: process.uptime(),
     requestId: req.id,
+    render: isRender,
     metrics: {
       system: getSystemMetrics()
     }
@@ -405,10 +482,8 @@ app.get('/api/ping', (req, res) => {
 });
 
 // ============================================
-// 🔥 ENHANCED DEBUG ENDPOINTS
+// DEBUG ENDPOINTS (Protected)
 // ============================================
-
-// Connection status
 app.get('/api/debug/connections', (req, res) => {
   if (process.env.NODE_ENV === 'development' || req.user?.role === 'super_admin') {
     res.json(getConnectionStatus());
@@ -417,38 +492,32 @@ app.get('/api/debug/connections', (req, res) => {
   }
 });
 
-// System metrics
 app.get('/api/debug/metrics', (req, res) => {
   if (req.user?.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
   res.json(getSystemMetrics());
 });
 
-// Request statistics
 app.get('/api/debug/requests', (req, res) => {
   if (req.user?.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
   res.json(getRequestStats());
 });
 
-// Error log
 app.get('/api/debug/errors', (req, res) => {
   if (req.user?.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
   const limit = parseInt(req.query.limit) || 100;
   res.json(getErrorLog(limit));
 });
 
-// Memory analysis
 app.get('/api/debug/memory', (req, res) => {
   if (req.user?.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
   res.json(getMemoryAnalysis());
 });
 
-// Clear metrics
 app.post('/api/debug/clear-metrics', (req, res) => {
   if (req.user?.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
   res.json(clearMetrics());
 });
 
-// Pool crisis monitor
 app.get('/api/debug/pool-crisis', async (req, res) => {
   if (req.user?.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
   
@@ -475,7 +544,6 @@ app.get('/api/debug/pool-crisis', async (req, res) => {
   });
 });
 
-// General status
 app.get('/api/debug/status', (req, res) => {
   if (isProduction && req.user?.role !== 'super_admin') {
     return res.status(403).json({ error: 'Forbidden' });
@@ -507,7 +575,7 @@ app.use('/uploads', express.static('uploads', {
 }));
 
 // ============================================
-// CSRF PROTECTION
+// CSRF PROTECTION - ADAPTED FOR RENDER
 // ============================================
 let csrfProtection;
 if (isProduction) {
@@ -516,7 +584,7 @@ if (isProduction) {
       key: '_csrf',
       secure: true,
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: 'none', // Allow cross-site
       maxAge: 3600
     }
   });
@@ -550,6 +618,7 @@ if (isProduction) {
 // ============================================
 // API ROUTES
 // ============================================
+console.log('📡 Registering routes...');
 
 // Public routes
 app.use('/api/auth', authLimiter, authRoutes);
@@ -568,6 +637,8 @@ app.use('/api/vendor', apiLimiter, vendorRouter);
 app.use('/api/orders', apiLimiter, orderRoutes);
 app.use('/api/products', productLimiter, productRoutes);
 app.use('/api/categories', categoryRoutes);
+
+console.log('✅ Routes registered successfully');
 
 // ============================================
 // CSP REPORTING
