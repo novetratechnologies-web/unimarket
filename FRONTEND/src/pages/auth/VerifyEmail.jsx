@@ -11,7 +11,10 @@ import {
   Shield,
   LogIn,
   Copy,
-  Check
+  Check,
+  Smartphone,
+  MailCheck,
+  MessageSquare
 } from "lucide-react";
 import { api } from "../../api";
 import { useAuth } from "../../context/AuthContext";
@@ -31,6 +34,7 @@ export default function VerifyEmail() {
   const [isVerified, setIsVerified] = useState(false);
   const [autoRedirectTimer, setAutoRedirectTimer] = useState(5);
   const [copied, setCopied] = useState(false);
+  const [resendMethod, setResendMethod] = useState('email'); // 'email' or 'sms'
   
   const inputRefs = useRef([]);
 
@@ -39,11 +43,10 @@ export default function VerifyEmail() {
     if (user?.isVerified) {
       setIsVerified(true);
       setMessage({
-        text: "✅ Your email is already verified!",
+        text: "Your email is already verified!",
         type: "success"
       });
       
-      // Auto redirect to dashboard if logged in, otherwise to login
       const timer = setInterval(() => {
         setAutoRedirectTimer(prev => {
           if (prev <= 1) {
@@ -92,13 +95,11 @@ export default function VerifyEmail() {
 
   // Handle individual digit input
   const handleDigitChange = (index, value) => {
-    // Only allow single digit numbers
     const digit = value.replace(/\D/g, '').slice(0, 1);
     const newCode = [...code];
     newCode[index] = digit;
     setCode(newCode);
 
-    // Auto-focus next input
     if (digit && index < 5) {
       setActiveIndex(index + 1);
       inputRefs.current[index + 1]?.focus();
@@ -109,7 +110,6 @@ export default function VerifyEmail() {
   const handleKeyDown = (index, e) => {
     if (e.key === 'Backspace') {
       if (!code[index] && index > 0) {
-        // Move to previous input and clear it
         setActiveIndex(index - 1);
         inputRefs.current[index - 1]?.focus();
         
@@ -117,7 +117,6 @@ export default function VerifyEmail() {
         newCode[index - 1] = "";
         setCode(newCode);
       } else if (code[index]) {
-        // Clear current input
         const newCode = [...code];
         newCode[index] = "";
         setCode(newCode);
@@ -174,20 +173,17 @@ export default function VerifyEmail() {
 
       if (response.success || response.data?.success) {
         setMessage({
-          text: response.data?.message || "🎉 Email verified successfully!",
+          text: "Email verified successfully!",
           type: "success"
         });
         setIsVerified(true);
         
-        // Clear stored email
         localStorage.removeItem('pendingVerificationEmail');
         
-        // Refresh user data in context if logged in
         if (refreshUser) {
           await refreshUser();
         }
         
-        // Start auto-redirect countdown
         let seconds = 5;
         const timer = setInterval(() => {
           seconds -= 1;
@@ -196,7 +192,6 @@ export default function VerifyEmail() {
           if (seconds <= 0) {
             clearInterval(timer);
             
-            // Redirect based on auth status
             if (user) {
               navigate("/dashboard", {
                 state: { message: "Email verified successfully! Welcome back!" }
@@ -204,7 +199,7 @@ export default function VerifyEmail() {
             } else {
               navigate("/login", {
                 state: { 
-                  message: "Email verified successfully! Please login to continue.",
+                  message: "Email verified successfully! Please login.",
                   email: email 
                 }
               });
@@ -219,7 +214,6 @@ export default function VerifyEmail() {
           text: response.error || response.message || "Verification failed",
           type: "error"
         });
-        // Clear code on error
         setCode(["", "", "", "", "", ""]);
         setActiveIndex(0);
         inputRefs.current[0]?.focus();
@@ -227,14 +221,13 @@ export default function VerifyEmail() {
     } catch (error) {
       console.error("Verification error:", error);
       
-      // Handle specific error codes
-      const errorMessage = error.response?.data?.message;
       const errorCode = error.response?.data?.code;
+      const errorMessage = error.response?.data?.message;
       
       let displayMessage = "An error occurred during verification";
       
       if (errorCode === 'INVALID_CODE') {
-        displayMessage = "Invalid or expired verification code. Please request a new one.";
+        displayMessage = "Invalid or expired code. Please request a new one.";
       } else if (errorCode === 'USER_NOT_FOUND') {
         displayMessage = "No account found with this email address.";
       } else if (errorCode === 'ALREADY_VERIFIED') {
@@ -273,16 +266,19 @@ export default function VerifyEmail() {
     setMessage({ text: "", type: "" });
 
     try {
-      const response = await api.post("/auth/resend-verification", { email });
+      const endpoint = resendMethod === 'sms' 
+        ? "/auth/resend-verification-sms" 
+        : "/auth/resend-verification";
+      
+      const response = await api.post(endpoint, { email });
 
       if (response.success || response.data?.success) {
         setMessage({
-          text: response.data?.message || "📧 New verification code sent!",
+          text: `New verification code sent via ${resendMethod}!`,
           type: "success"
         });
-        setCooldown(60); // 1 minute cooldown
+        setCooldown(60);
         
-        // Clear code fields for new code
         setCode(["", "", "", "", "", ""]);
         setActiveIndex(0);
         inputRefs.current[0]?.focus();
@@ -324,23 +320,25 @@ export default function VerifyEmail() {
 
   if (!email) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-50 via-white to-cyan-50">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full mx-4 text-center">
-          <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Email Required</h2>
-          <p className="text-gray-600 mb-6">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-50 via-white to-cyan-50 p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+          <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="w-10 h-10 text-yellow-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-3">Email Required</h2>
+          <p className="text-gray-600 mb-8">
             We couldn't find an email address to verify. Please login or register first.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <Link
               to="/login"
-              className="flex-1 bg-teal-600 text-white py-3 rounded-lg font-semibold hover:bg-teal-700 transition"
+              className="flex-1 bg-gradient-to-r from-teal-600 to-cyan-600 text-white py-3 rounded-xl font-semibold hover:from-teal-700 hover:to-cyan-700 transition shadow-md"
             >
               Go to Login
             </Link>
             <Link
               to="/register"
-              className="flex-1 border border-teal-600 text-teal-600 py-3 rounded-lg font-semibold hover:bg-teal-50 transition"
+              className="flex-1 border-2 border-teal-600 text-teal-600 py-3 rounded-xl font-semibold hover:bg-teal-50 transition"
             >
               Register
             </Link>
@@ -352,32 +350,35 @@ export default function VerifyEmail() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-50 via-white to-cyan-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-teal-600 to-cyan-600 p-8 text-white text-center">
-          <div className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-4">
-            <Shield className="w-10 h-10" />
+        <div className="bg-gradient-to-r from-teal-600 to-cyan-600 p-8 text-white text-center relative overflow-hidden">
+          <div className="absolute inset-0 bg-white/10 backdrop-blur-sm"></div>
+          <div className="relative z-10">
+            <div className="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/30">
+              <Shield className="w-10 h-10" />
+            </div>
+            <h1 className="text-3xl font-bold mb-2">Verify Your Email</h1>
+            <p className="text-teal-100">
+              Secure access to your campus marketplace
+            </p>
           </div>
-          <h1 className="text-3xl font-bold mb-2">Verify Your Email</h1>
-          <p className="text-teal-100 opacity-90">
-            Secure access to your campus marketplace
-          </p>
         </div>
 
-        <div className="p-8">
+        <div className="p-6 md:p-8">
           {/* Email Display */}
           <div className="mb-8 text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="flex items-center justify-center gap-2 mb-3">
               <Mail className="w-5 h-5 text-teal-600" />
-              <p className="text-sm text-gray-600">Verification code sent to</p>
+              <p className="text-sm text-gray-600 font-medium">Verification code sent to</p>
             </div>
-            <div className="flex items-center justify-center gap-2">
-              <p className="font-mono font-bold text-lg bg-gray-50 py-2 px-4 rounded-lg">
+            <div className="flex items-center justify-center gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100">
+              <p className="font-mono font-bold text-lg text-gray-800 truncate max-w-[200px] sm:max-w-xs">
                 {email}
               </p>
               <button
                 onClick={handleCopyEmail}
-                className="p-2 text-gray-400 hover:text-teal-600 transition-colors"
+                className="p-2 text-gray-400 hover:text-teal-600 transition-colors rounded-lg hover:bg-gray-100"
                 title="Copy email"
               >
                 {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
@@ -389,15 +390,17 @@ export default function VerifyEmail() {
           {isVerified && (
             <div className="mb-6 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
               <div className="flex items-center gap-3">
-                <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                </div>
                 <div className="flex-1">
                   <p className="font-semibold text-green-800">Successfully Verified!</p>
-                  <p className="text-sm text-green-600 mt-1">
-                    Redirecting to {user ? 'dashboard' : 'login'} in {autoRedirectTimer} seconds...
+                  <p className="text-sm text-green-600">
+                    Redirecting to {user ? 'dashboard' : 'login'} in {autoRedirectTimer}s
                   </p>
                 </div>
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                  <span className="text-sm font-bold text-green-700">{autoRedirectTimer}</span>
+                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                  <span className="text-lg font-bold text-green-700">{autoRedirectTimer}</span>
                 </div>
               </div>
             </div>
@@ -410,7 +413,7 @@ export default function VerifyEmail() {
                 <label className="block text-sm font-semibold text-gray-700 mb-4 text-center">
                   Enter 6-digit verification code
                 </label>
-                <div className="flex justify-center gap-3 mb-6">
+                <div className="flex justify-center gap-2 sm:gap-3 mb-6">
                   {code.map((digit, index) => (
                     <input
                       key={index}
@@ -424,17 +427,19 @@ export default function VerifyEmail() {
                       onKeyDown={(e) => handleKeyDown(index, e)}
                       onPaste={handlePaste}
                       onFocus={() => setActiveIndex(index)}
-                      className={`w-14 h-14 text-center text-2xl font-bold rounded-xl border-2 transition-all ${
+                      className={`w-12 h-12 sm:w-14 sm:h-14 text-center text-xl sm:text-2xl font-bold rounded-xl border-2 transition-all ${
                         digit
                           ? "border-teal-500 bg-teal-50 text-teal-700"
-                          : "border-gray-300 hover:border-teal-400 focus:border-teal-500"
+                          : activeIndex === index
+                          ? "border-teal-400 ring-4 ring-teal-100"
+                          : "border-gray-200 hover:border-teal-300"
                       } outline-none`}
                       disabled={loading || isVerified}
                     />
                   ))}
                 </div>
                 <p className="text-center text-sm text-gray-500">
-                  Enter the code from your email
+                  Enter the 6-digit code from your email
                 </p>
               </div>
 
@@ -442,16 +447,20 @@ export default function VerifyEmail() {
               {message.text && (
                 <div className={`mb-6 p-4 rounded-xl border ${
                   message.type === "success"
-                    ? "bg-green-50 border-green-200 text-green-800"
-                    : "bg-red-50 border-red-200 text-red-800"
+                    ? "bg-green-50 border-green-200"
+                    : "bg-red-50 border-red-200"
                 }`}>
                   <div className="flex items-center gap-3">
                     {message.type === "success" ? (
-                      <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                      <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
                     ) : (
-                      <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                      <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
                     )}
-                    <span>{message.text}</span>
+                    <span className={`text-sm ${
+                      message.type === "success" ? "text-green-700" : "text-red-700"
+                    }`}>
+                      {message.text}
+                    </span>
                   </div>
                 </div>
               )}
@@ -462,14 +471,14 @@ export default function VerifyEmail() {
                 disabled={loading || code.some(d => d === "")}
                 className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
                   loading || code.some(d => d === "")
-                    ? "bg-gray-300 cursor-not-allowed"
+                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
                     : "bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
                 }`}
               >
                 {loading ? (
                   <div className="flex items-center justify-center gap-3">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Verifying...
+                    <span>Verifying...</span>
                   </div>
                 ) : (
                   "Verify Email"
@@ -481,42 +490,62 @@ export default function VerifyEmail() {
           {/* Resend Section */}
           {!isVerified && (
             <div className="mt-8 pt-8 border-t border-gray-100">
-              <div className="text-center">
-                <p className="text-gray-600 mb-4">
-                  Didn't receive the code?
-                </p>
-                
-                {cooldown > 0 ? (
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg">
-                    <Clock className="w-4 h-4 animate-spin" />
-                    <span className="font-medium">
-                      Resend available in {formatCooldown(cooldown)}
-                    </span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleResendCode}
-                    disabled={resendLoading || !email}
-                    className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
-                      resendLoading || !email
-                        ? "text-gray-400 cursor-not-allowed"
-                        : "text-teal-600 hover:text-teal-700 hover:bg-teal-50"
-                    }`}
-                  >
-                    {resendLoading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Sending...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-4 h-4" />
-                        Resend Verification Code
-                      </>
-                    )}
-                  </button>
-                )}
+              <p className="text-gray-600 text-center mb-4">
+                Didn't receive the code?
+              </p>
+              
+              {/* Resend Method Toggle */}
+              <div className="flex justify-center gap-3 mb-6">
+                <button
+                  onClick={() => setResendMethod('email')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                    resendMethod === 'email'
+                      ? 'bg-teal-600 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <Mail className="w-4 h-4" />
+                  <span className="text-sm font-medium">Email</span>
+                </button>
+                <button
+                  onClick={() => setResendMethod('sms')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                    resendMethod === 'sms'
+                      ? 'bg-teal-600 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span className="text-sm font-medium">SMS</span>
+                </button>
               </div>
+              
+              {cooldown > 0 ? (
+                <div className="flex items-center justify-center gap-2 p-3 bg-blue-50 text-blue-700 rounded-xl">
+                  <Clock className="w-4 h-4 animate-spin" />
+                  <span className="font-medium">
+                    Resend in {formatCooldown(cooldown)}
+                  </span>
+                </div>
+              ) : (
+                <button
+                  onClick={handleResendCode}
+                  disabled={resendLoading || !email}
+                  className="w-full flex items-center justify-center gap-2 p-3 rounded-xl font-medium text-teal-600 hover:text-teal-700 hover:bg-teal-50 transition-all border-2 border-teal-600 hover:border-teal-700"
+                >
+                  {resendLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      Resend Code via {resendMethod === 'email' ? 'Email' : 'SMS'}
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           )}
 
@@ -526,7 +555,7 @@ export default function VerifyEmail() {
               {isVerified ? (
                 <Link
                   to={user ? "/dashboard" : "/login"}
-                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-teal-600 text-white font-semibold hover:bg-teal-700 transition"
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 text-white font-semibold hover:from-teal-700 hover:to-cyan-700 transition shadow-md"
                 >
                   <LogIn className="w-4 h-4" />
                   {user ? 'Go to Dashboard' : 'Go to Login'}
@@ -535,16 +564,16 @@ export default function VerifyEmail() {
                 <>
                   <Link
                     to="/login"
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-semibold hover:bg-gray-50 transition"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     Back to Login
                   </Link>
                   <Link
                     to="/register"
-                    className="flex-1 py-3 rounded-lg border border-teal-600 text-teal-600 text-center font-semibold hover:bg-teal-50 transition"
+                    className="flex-1 py-3 rounded-xl border-2 border-teal-600 text-teal-600 text-center font-semibold hover:bg-teal-50 transition"
                   >
-                    Create New Account
+                    Create Account
                   </Link>
                 </>
               )}
@@ -552,15 +581,15 @@ export default function VerifyEmail() {
           </div>
 
           {/* Help Text */}
-          <div className="mt-6 text-center space-y-2">
-            <p className="text-xs text-gray-500">
-              Check your spam folder if you don't see the email
+          <div className="mt-6 text-center">
+            <p className="text-xs text-gray-400 flex items-center justify-center gap-1">
+              <MailCheck className="w-3 h-3" />
+              Check spam folder if you don't see the email
             </p>
-            {process.env.NODE_ENV === 'development' && (
-              <p className="text-xs text-gray-400">
-                Dev mode: Check console for verification code
-              </p>
-            )}
+            <p className="text-xs text-gray-400 flex items-center justify-center gap-1 mt-1">
+              <MessageSquare className="w-3 h-3" />
+              Need help? <button className="text-teal-600 hover:underline">Contact Support</button>
+            </p>
           </div>
         </div>
 

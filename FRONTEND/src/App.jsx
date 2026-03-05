@@ -52,7 +52,7 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/login" element={<Login />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
-            <Route path="/auth/success" element={<AuthSuccess />} />
+            <Route path="/auth-success" element={<AuthSuccess />} />
             <Route path="/update-info" element={<UpdateInfo />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
 
