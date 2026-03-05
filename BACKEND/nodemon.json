@@ -1,0 +1,12 @@
+{
+  "exec": "node --max-old-space-size=4096 src/server.js",
+  "watch": ["src"],
+  "ignore": ["node_modules", "logs", "uploads", "*.test.js"],
+  "ext": "js,json,mjs",
+  "delay": 1000,
+  "env": {
+    "NODE_ENV": "development",
+    "DEBUG": "true"
+  },
+  "verbose": true
+}
