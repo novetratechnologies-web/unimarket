@@ -28,12 +28,26 @@ export default defineConfig(({ command, mode }) => {
     },
     build: {
       outDir: 'dist',
-      sourcemap: true,
-      // Optimize for production
+      sourcemap: mode !== 'production',
+      // ✅ FIXED: manualChunks should be a function, not an object
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
+          manualChunks: (id) => {
+            // This is the correct function format
+            if (id.includes('node_modules')) {
+              // Split vendor chunks for better caching
+              if (id.includes('react')) {
+                return 'vendor-react';
+              }
+              if (id.includes('axios')) {
+                return 'vendor-axios';
+              }
+              if (id.includes('react-router')) {
+                return 'vendor-router';
+              }
+              // All other node_modules go to vendor
+              return 'vendor';
+            }
           },
         },
       },
