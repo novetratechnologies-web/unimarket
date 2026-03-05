@@ -39,14 +39,10 @@ const startServer = async () => {
       try {
         // Method 1: Check server status for connection count
         const status = await mongoose.connection.db.admin().serverStatus();
-        console.log(`\n📊 MongoDB Server Status:`);
-        console.log(`   Current connections: ${status.connections?.current || 0}`);
-        console.log(`   Available connections: ${status.connections?.available || 0}`);
-        console.log(`   Total created: ${status.connections?.totalCreated || 0}`);
+
         
         // Method 2: Check current operations
         const ops = await mongoose.connection.db.admin().command({ currentOp: 1 });
-        console.log(`   Active operations: ${ops.inprog?.length || 0}`);
         
       } catch (err) {
         console.log('❌ Status check failed:', err.message);

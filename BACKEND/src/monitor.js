@@ -111,34 +111,15 @@ setInterval(async () => {
     const memPercent = ((totalMem - freeMem) / totalMem * 100).toFixed(1);
     
     // Clear console and show updated stats
-    console.clear();
-    console.log(chalk.cyan('═'.repeat(60)));
-    console.log(chalk.cyan.bold('🚀 NODE.JS MEMORY MONITOR'));
-    console.log(chalk.cyan('═'.repeat(60)));
-    
-    console.log(`\n📈 Runtime: ${runtime} minutes`);
-    console.log(`🆔 PID: ${processInfo.pid}`);
-    
-    console.log(`\n${memoryColor('📊 MEMORY USAGE')}`);
-    console.log(`   ${bar} ${memoryColor(`${memoryMB}MB / 4000MB`)}`);
-    console.log(`   ├─ Growth: ${growth > 50 ? chalk.red(growthRate) : chalk.green(growthRate)}`);
-    console.log(`   ├─ Peak: ${chalk.yellow(`${peakMemory}MB`)}`);
-    console.log(`   └─ Heap %: ${memoryColor(`${Math.round((memoryMB / 4000) * 100)}%`)}`);
-    
-    console.log(`\n💻 SYSTEM MEMORY`);
-    console.log(`   Total: ${totalMem.toFixed(1)}GB`);
-    console.log(`   Used: ${(totalMem - freeMem).toFixed(1)}GB (${memPercent}%)`);
-    console.log(`   Free: ${freeMem.toFixed(1)}GB`);
-    
-    console.log(`\n⚡ CPU: ${cpuPercent.toFixed(1)}%`);
-    
+  
+
+  
     // Warnings
     if (memoryMB > 3500) {
-      console.log(chalk.red.bgYellow('\n🚨 CRITICAL: Near memory limit! Restart soon!'));
     } else if (memoryMB > 3000) {
-      console.log(chalk.yellow('\n⚠️ WARNING: High memory usage'));
+
     } else if (memoryMB < lastMemory - 100) {
-      console.log(chalk.green('\n✅ GC freed significant memory'));
+     
     }
     
     // Alert on rapid growth

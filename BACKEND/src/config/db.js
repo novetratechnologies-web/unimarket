@@ -44,11 +44,6 @@ const connectDB = async () => {
         // This is the CORRECT way per MongoDB docs [citation:1][citation:6]
         const stats = await db.command({ connPoolStats: 1 });
         
-        console.log('\n📊 MongoDB Connection Pool Stats:');
-        console.log(`   Total in use: ${stats.totalInUse || 0}`);
-        console.log(`   Total available: ${stats.totalAvailable || 0}`);
-        console.log(`   Total created: ${stats.totalCreated || 0}`);
-        console.log(`   Total refreshing: ${stats.totalRefreshing || 0}`);
         
         // Per-pool breakdown if available [citation:6]
         if (stats.pools) {
@@ -190,11 +185,6 @@ export const logPoolStatus = async () => {
   const stats = await getConnectionPoolStats();
   
   if (stats.connected && !stats.error) {
-    console.log(`\n📊 MongoDB Pool Status:`);
-    console.log(`   📈 In use: ${stats.totalInUse}`);
-    console.log(`   📉 Available: ${stats.totalAvailable}`);
-    console.log(`   🔨 Created: ${stats.totalCreated}`);
-    console.log(`   🔄 Refreshing: ${stats.totalRefreshing}`);
     
     if (stats.pools && Object.keys(stats.pools).length > 0) {
       console.log(`\n   📦 Pool Details:`);
