@@ -2,13 +2,27 @@
 const API_VERSION = '2.0.0'; // Increment this when you make changes!
 console.log(`🚀 API Client v${API_VERSION} initialized`);
 
-// src/api/index.js - COMPLETELY FIXED VERSION
 import axios from 'axios';
 import { AUTH_KEYS } from '../constants/auth';
 
+// ============================================
+// ✅ FIXED: Environment-based baseURL configuration
+// ============================================
 const isDevelopment = import.meta.env.VITE_ENV === 'development';
-const baseURL = isDevelopment ? '/api' : import.meta.env.VITE_API_URL;
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = import.meta.env.PROD || process.env.NODE_ENV === 'production';
+
+// ✅ CORRECT: Use environment variable with fallback
+const baseURL = isDevelopment 
+  ? '/api' 
+  : (import.meta.env.VITE_API_URL || 'https://unimarket-vtx5.onrender.com/api');
+
+console.log('🔧 Environment:', { 
+  isDevelopment, 
+  isProduction,
+  VITE_ENV: import.meta.env.VITE_ENV,
+  VITE_API_URL: import.meta.env.VITE_API_URL
+});
+console.log('🌐 API Base URL:', baseURL);
 
 // Request queue for token refresh
 let isRefreshing = false;
@@ -25,14 +39,19 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
+// ============================================
+// ✅ FIXED: Use baseURL variable instead of hardcoded '/api'
+// ============================================
 const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL: baseURL,  // 🔥 THIS WAS THE BUG - was '/api'
   timeout: parseInt(import.meta.env.VITE_API_TIMEOUT || '30000'),
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: isProduction,
+  withCredentials: true, // Always true for cross-origin requests
 });
+
+console.log('✅ API Client created with baseURL:', apiClient.defaults.baseURL);
 
 // Get CSRF token
 const getCSRFToken = () => {
@@ -48,7 +67,7 @@ const getCSRFToken = () => {
 
 // Get token from secure storage
 const getToken = () => {
-  if (isProduction) {
+  if (!isDevelopment) {
     const cookies = document.cookie.split(';');
     for (let cookie of cookies) {
       const [name, value] = cookie.trim().split('=');
@@ -92,7 +111,7 @@ apiClient.interceptors.request.use(
 
     // Log in development
     if (import.meta.env.VITE_LOG_REQUESTS === 'true') {
-      console.log(`📤 [API] ${config.method?.toUpperCase()} ${config.url}`);
+      console.log(`📤 [API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
     }
     
     return config;
@@ -100,7 +119,7 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ✅ FIXED: Response interceptor with SINGLE error path
+// Response interceptor
 apiClient.interceptors.response.use(
   (response) => {
     if (import.meta.env.VITE_LOG_RESPONSES === 'true') {
@@ -109,7 +128,7 @@ apiClient.interceptors.response.use(
     
     // Check for CSRF token in response
     if (response.data?.csrfToken) {
-      document.cookie = `csrf_token=${response.data.csrfToken}; Path=/; SameSite=Strict`;
+      document.cookie = `csrf_token=${response.data.csrfToken}; Path=/; SameSite=Strict${!isDevelopment ? '; Secure' : ''}`;
     }
     
     return response.data;
@@ -119,11 +138,12 @@ apiClient.interceptors.response.use(
     
     console.error('❌ [API Error]', {
       url: originalRequest?.url,
+      fullUrl: originalRequest ? `${originalRequest.baseURL}${originalRequest.url}` : 'unknown',
       status: error.response?.status,
       message: error.message,
     });
 
-    // ✅ FIX 1: Handle 404 errors immediately - NO RETRY!
+    // Handle 404 errors
     if (error.response?.status === 404) {
       return Promise.reject({
         success: false,
@@ -133,7 +153,7 @@ apiClient.interceptors.response.use(
       });
     }
 
-    // ✅ FIX 2: Handle 401 only for token refresh (skip login/register)
+    // Handle 401 for token refresh
     if (error.response?.status === 401 && 
         !originalRequest._retry && 
         !originalRequest.url.includes('/auth/login') && 
@@ -156,7 +176,7 @@ apiClient.interceptors.response.use(
       
       try {
         let refreshToken;
-        if (isProduction) {
+        if (!isDevelopment) {
           const cookies = document.cookie.split(';');
           for (let cookie of cookies) {
             const [name, value] = cookie.trim().split('=');
@@ -182,7 +202,7 @@ apiClient.interceptors.response.use(
           if (response?.data?.tokens) {
             const tokens = response.data.tokens;
             
-            if (isProduction) {
+            if (!isDevelopment) {
               document.cookie = `accessToken=${tokens.access}; Secure; HttpOnly; SameSite=Strict; path=/`;
               document.cookie = `refreshToken=${tokens.refresh}; Secure; HttpOnly; SameSite=Strict; path=/`;
             } else {
@@ -209,7 +229,7 @@ apiClient.interceptors.response.use(
       }
     }
     
-    // ✅ FIX 3: Handle 403/419 (CSRF errors)
+    // Handle 403/419 (CSRF errors)
     if (error.response?.status === 403 || error.response?.status === 419) {
       window.dispatchEvent(new Event('auth-expired'));
       return Promise.reject({
@@ -220,7 +240,7 @@ apiClient.interceptors.response.use(
       });
     }
 
-    // ✅ FIX 4: Handle validation errors (400)
+    // Handle validation errors (400)
     if (error.response?.status === 400) {
       return Promise.reject(error.response.data || {
         success: false,
@@ -229,7 +249,7 @@ apiClient.interceptors.response.use(
       });
     }
 
-    // ✅ FIX 5: Handle rate limiting (429)
+    // Handle rate limiting (429)
     if (error.response?.status === 429) {
       return Promise.reject(error.response.data || {
         success: false,
@@ -238,7 +258,7 @@ apiClient.interceptors.response.use(
       });
     }
 
-    // ✅ FIX 6: Handle server errors (500)
+    // Handle server errors (500)
     if (error.response?.status >= 500) {
       return Promise.reject({
         success: false,
@@ -248,7 +268,7 @@ apiClient.interceptors.response.use(
       });
     }
     
-    // ✅ FIX 7: Handle network errors
+    // Handle network errors
     if (error.code === 'ECONNABORTED') {
       return Promise.reject({
         success: false,
@@ -265,12 +285,11 @@ apiClient.interceptors.response.use(
       });
     }
     
-    // ✅ FIX 8: Default error - return response data if available
+    // Default error
     if (error.response?.data) {
       return Promise.reject(error.response.data);
     }
     
-    // ✅ FIX 9: Final fallback - single rejection
     return Promise.reject({
       success: false,
       message: error.message || 'An unexpected error occurred',
@@ -279,7 +298,7 @@ apiClient.interceptors.response.use(
   }
 );
 
-// SIMPLIFIED API call function
+// API call function
 export const apiCall = async (method, endpoint, data = null, config = {}) => {
   try {
     const response = await apiClient.request({
@@ -292,7 +311,6 @@ export const apiCall = async (method, endpoint, data = null, config = {}) => {
     return response;
     
   } catch (error) {
-    // Handle cancellation
     if (axios.isCancel(error)) {
       throw {
         success: false,
@@ -300,8 +318,6 @@ export const apiCall = async (method, endpoint, data = null, config = {}) => {
         code: 'REQUEST_CANCELLED'
       };
     }
-    
-    // Already processed by interceptor - just rethrow
     throw error;
   }
 };
@@ -321,6 +337,9 @@ export const api = {
   removeHeader: (key) => {
     delete apiClient.defaults.headers.common[key];
   },
+  
+  // Helper to get current baseURL
+  getBaseURL: () => apiClient.defaults.baseURL,
 };
 
 export default api;
