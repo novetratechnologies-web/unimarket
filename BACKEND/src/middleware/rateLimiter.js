@@ -117,15 +117,13 @@ export const rateLimiter = (options = {}) => {
       const timeWindow = Math.floor(Date.now() / (5 * 60 * 1000)); // 5-minute windows
       
       // Create a fingerprint that includes the safe IP
-      const fingerprint = require('crypto')
+      const fingerprint = crypto
         .createHash('sha256')
         .update(`${safeIp}:${userAgent}:${acceptLang}:${timeWindow}`)
         .digest('hex')
         .substring(0, 20);
       
       return `fp:${fingerprint}`;
-      
-      // ❌ NEVER return raw IP: return `ip:${ipKeyGenerator(req.ip)}`;
     },
     
     // Skip rate limiting conditions
@@ -195,21 +193,21 @@ export const rateLimiter = (options = {}) => {
   // Merge with user options
   const config = { ...defaultOptions, ...options };
 
-  // Use Redis store in production for distributed rate limiting
+  // 🔥 FIXED: Use Redis store in production with proper configuration
   if (isProduction && redisClient && !config.store) {
+    // For rate-limit-redis v4+, use sendCommand
     config.store = new RedisStore({
-      // @ts-ignore - Redis client compatibility
-      client: redisClient,
+      // Use sendCommand for Redis compatibility (not sendCommandCluster)
+      sendCommand: (...args) => redisClient.call(...args),
       prefix: `rl:${config.prefix || 'global'}:`,
-      resetExpiryOnChange: true, // Reset expiry on increment
     });
-    
+
     console.log(`✅ Using Redis store for rate limiting: ${config.prefix || 'global'}`);
   } else if (isProduction && !redisClient) {
     console.warn('⚠️ Redis not available, using memory store (not recommended for production with multiple instances)');
   }
 
-  // Remove any invalid options
+  // Remove any invalid options that might cause issues
   const { prefix, ...cleanConfig } = config;
 
   return rateLimit(cleanConfig);
@@ -339,7 +337,6 @@ export const dashboardLimiter = rateLimiter({
     // Use fingerprint instead of IP
     const fingerprint = generateFingerprint(req, true);
     return `dashboard:fp:${fingerprint}`;
-    // ❌ REMOVED: return `dashboard:ip:${ipKeyGenerator(req.ip)}`;
   }
 });
 
