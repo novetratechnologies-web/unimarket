@@ -3,6 +3,7 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import User from "../models/User.js";
 import dotenv from "dotenv";
+import jwt from 'jsonwebtoken'; // Make sure to install jsonwebtoken
 
 // Load env vars
 import { fileURLToPath } from 'url';
@@ -28,6 +29,32 @@ for (const path of possiblePaths) {
   }
 }
 
+// Helper function to generate JWT tokens
+const generateTokens = (user) => {
+  // Generate access token (short-lived)
+  const accessToken = jwt.sign(
+    { 
+      id: user._id,
+      email: user.email,
+      role: user.role 
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '30m' }
+  );
+
+  // Generate refresh token (long-lived)
+  const refreshToken = jwt.sign(
+    { 
+      id: user._id,
+      type: 'refresh' 
+    },
+    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
+  );
+
+  return { accessToken, refreshToken };
+};
+
 export default function setupGoogleStrategy() {
   // Check if required env vars exist
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_CALLBACK_URL) {
@@ -35,7 +62,7 @@ export default function setupGoogleStrategy() {
     return;
   }
 
-  console.log('✅ Setting up Google OAuth Strategy');
+  console.log('✅ Setting up Google OAuth Strategy with callback:', process.env.GOOGLE_CALLBACK_URL);
 
   passport.use(
     new GoogleStrategy(
@@ -81,8 +108,20 @@ export default function setupGoogleStrategy() {
             console.log("✅ Existing user updated with Google info");
           }
 
-          // Return user to passport - this will be available in req.user
-          return done(null, user);
+          // Generate JWT tokens
+          const tokens = generateTokens(user);
+          
+          console.log("✅ JWT tokens generated for user:", user.email);
+
+          // 🔥 IMPORTANT: Return user WITH tokens in the done callback
+          // This will be available in the route handler
+          return done(null, { 
+            user, 
+            tokens: {
+              access: tokens.accessToken,
+              refresh: tokens.refreshToken
+            }
+          });
           
         } catch (error) {
           console.error("❌ Google OAuth Error:", error);
@@ -94,7 +133,7 @@ export default function setupGoogleStrategy() {
 
   // Serialization for session (if using sessions)
   passport.serializeUser((user, done) => {
-    done(null, user.id);
+    done(null, user.id || user._id);
   });
 
   passport.deserializeUser(async (id, done) => {

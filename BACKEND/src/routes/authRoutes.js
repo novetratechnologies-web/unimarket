@@ -99,6 +99,33 @@ const sanitizeUser = (user) => {
 
 // ==================== GOOGLE OAUTH ROUTES (MUST BE FIRST) ====================
 
+// Helper function to generate JWT tokens
+const generateTokens = (user) => {
+  // Access token - short lived
+  const accessToken = jwt.sign(
+    { 
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      isVerified: user.isVerified
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '30m' }
+  );
+
+  // Refresh token - long lived
+  const refreshToken = jwt.sign(
+    { 
+      id: user._id,
+      type: 'refresh' 
+    },
+    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
+  );
+
+  return { access: accessToken, refresh: refreshToken };
+};
+
 /**
  * @route   GET /api/auth/google
  * @desc    Initiate Google OAuth login
@@ -140,6 +167,7 @@ router.get(
   (req, res, next) => {
     console.log("🔄 [2] Google OAuth callback received");
     console.log("📍 Query params:", req.query);
+    console.log("📍 Query state:", req.query.state);
     
     passport.authenticate('google', { 
       session: false,
@@ -157,6 +185,15 @@ router.get(
         }
 
         console.log("✅ Google auth successful for:", user.email);
+        console.log("👤 User object:", {
+          id: user._id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          isVerified: user.isVerified,
+          phone: user.phone,
+          university: user.university
+        });
 
         // Parse state for redirect URL
         let redirectUrl = process.env.CLIENT_URL;
@@ -170,28 +207,79 @@ router.get(
           }
         }
 
-        // Call the handler with user
-        req.user = user;
-        const result = await handleGoogleCallback(req, res);
+        // 🔥 GENERATE TOKENS
+        const tokens = generateTokens(user);
+        console.log("✅ Tokens generated for user");
 
-        if (result.requiresProfileCompletion) {
-          const tempToken = jwt.sign(
-            { id: user._id, email: user.email },
-            process.env.JWT_SECRET,
-            { expiresIn: '30m' }
+        // Check if profile is complete (needs phone, university)
+        const requiresProfileCompletion = !user.phone || !user.university;
+
+        // Prepare user data for frontend
+        const userData = {
+          id: user._id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          isVerified: user.isVerified,
+          phone: user.phone,
+          university: user.university,
+          avatar: user.avatar
+        };
+
+        // Production vs Development handling
+        if (process.env.NODE_ENV === 'production') {
+          // Set secure cookies
+          res.cookie('accessToken', tokens.access, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'strict',
+            maxAge: 30 * 60 * 1000 // 30 minutes
+          });
+          
+          res.cookie('refreshToken', tokens.refresh, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+          });
+
+          if (requiresProfileCompletion) {
+            console.log("⚠️ Profile incomplete, redirecting to completion");
+            return res.redirect(
+              `${redirectUrl}/complete-profile?` +
+              `user=${encodeURIComponent(JSON.stringify(userData))}`
+            );
+          }
+
+          console.log("✅ Authentication complete, redirecting to frontend");
+          return res.redirect(
+            `${redirectUrl}/auth-success?` +
+            `user=${encodeURIComponent(JSON.stringify(userData))}`
           );
-          console.log("⚠️ Profile incomplete, redirecting to completion");
-          return res.redirect(`${redirectUrl}/complete-profile?token=${tempToken}`);
-        }
+        } else {
+          // Development - pass tokens in URL
+          if (requiresProfileCompletion) {
+            console.log("⚠️ Profile incomplete, redirecting to completion");
+            return res.redirect(
+              `${redirectUrl}/complete-profile?` +
+              `token=${tokens.access}&` +
+              `refresh=${tokens.refresh}&` +
+              `user=${encodeURIComponent(JSON.stringify(userData))}`
+            );
+          }
 
-        console.log("✅ Authentication complete, redirecting to frontend");
-        res.redirect(
-          `${redirectUrl}/auth-success?token=${result.tokens.access}&refresh=${result.tokens.refresh}`
-        );
+          console.log("✅ Authentication complete, redirecting to frontend");
+          return res.redirect(
+            `${redirectUrl}/auth-success?` +
+            `token=${tokens.access}&` +
+            `refresh=${tokens.refresh}&` +
+            `user=${encodeURIComponent(JSON.stringify(userData))}`
+          );
+        }
 
       } catch (error) {
         console.error('❌ Google callback error:', error);
-        res.redirect(`${process.env.CLIENT_URL}/login?error=server_error`);
+        return res.redirect(`${process.env.CLIENT_URL}/login?error=server_error`);
       }
     })(req, res, next);
   }
@@ -213,7 +301,65 @@ router.post(
     body("university").trim().escape().isLength({ min: 2, max: 100 })
   ],
   validateRequest,
-  completeGoogleProfile
+  async (req, res) => {
+    try {
+      const { firstName, lastName, phone, university } = req.body;
+      const userId = req.user._id;
+
+      console.log('🔄 Completing Google profile for user:', userId);
+
+      // Update user profile
+      const user = await User.findByIdAndUpdate(
+        userId,
+        {
+          ...(firstName && { firstName }),
+          ...(lastName && { lastName }),
+          phone,
+          university,
+          profileCompleted: true,
+          lastActive: new Date()
+        },
+        { new: true, runValidators: true }
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Generate new tokens with updated info
+      const tokens = generateTokens(user);
+
+      console.log('✅ Profile completed successfully for:', user.email);
+
+      // Prepare user data
+      const userData = {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        university: user.university,
+        isVerified: user.isVerified,
+        avatar: user.avatar
+      };
+
+      res.json({
+        success: true,
+        message: 'Profile completed successfully',
+        user: userData,
+        tokens
+      });
+    } catch (error) {
+      console.error('❌ Profile completion error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to complete profile'
+      });
+    }
+  }
 );
 
 // ==================== REGISTRATION & VERIFICATION ====================
