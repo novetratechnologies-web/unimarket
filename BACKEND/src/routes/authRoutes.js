@@ -215,16 +215,18 @@ router.get(
         const requiresProfileCompletion = !user.phone || !user.university;
 
         // Prepare user data for frontend
-        const userData = {
-          id: user._id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          isVerified: user.isVerified,
-          phone: user.phone,
-          university: user.university,
-          avatar: user.avatar
-        };
+          const userData = {
+            id: user._id,
+            email: user.email,
+            firstName: user.firstName || user.email.split('@')[0] || 'User',
+            lastName: user.lastName || '',
+            isVerified: user.isVerified || false,
+            phone: user.phone || '',
+            university: user.university || '',
+            avatar: user.avatar || ''
+          };
+
+          console.log("📦 User data prepared:", userData);
 
         // Production vs Development handling
         if (process.env.NODE_ENV === 'production') {
@@ -646,6 +648,66 @@ router.post(
   validateRequest,
   resetPassword
 );
+
+// ==================== EMAIL MANAGEMENT ====================
+
+/** 📧 Check Email Availability */
+router.get(
+  "/check-email",
+  authLimiter,
+  async (req, res) => {
+    try {
+      const { email } = req.query;
+      
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: "Email is required",
+          code: 'EMAIL_REQUIRED'
+        });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please provide a valid email address",
+          code: 'INVALID_EMAIL_FORMAT'
+        });
+      }
+
+      const sanitizedEmail = email.toLowerCase().trim();
+      
+      // Check if email exists
+      const existingUser = await User.findOne({ 
+        email: sanitizedEmail 
+      }).select('_id');
+
+      console.log(`📧 Email check for: ${sanitizedEmail} - ${existingUser ? 'EXISTS' : 'AVAILABLE'}`);
+
+      return res.json({
+        success: true,
+        available: !existingUser,
+        exists: !!existingUser,
+        message: existingUser ? "Email is already registered" : "Email is available",
+        code: existingUser ? 'EMAIL_EXISTS' : 'EMAIL_AVAILABLE'
+      });
+
+    } catch (error) {
+      console.error("❌ Email check error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to check email availability",
+        code: 'SERVER_ERROR',
+        ...(process.env.NODE_ENV === 'development' && { error: error.message })
+      });
+    }
+  }
+);
+
+
+
 
 // ==================== USER PROFILE ====================
 

@@ -55,6 +55,8 @@ function App() {
             <Route path="/auth-success" element={<AuthSuccess />} />
             <Route path="/update-info" element={<UpdateInfo />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/complete-profle" element={<ForgotPassword />} />
+
 
             {/* ===== MAIN PAGES (With Header/Footer) ===== */}
             <Route

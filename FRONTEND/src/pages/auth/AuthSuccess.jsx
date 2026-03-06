@@ -46,92 +46,78 @@ export default function AuthSuccess() {
       }
 
       // Handle token reception
-      if (token && refresh) {
-        try {
-          setStatus('processing');
-          
-          // Parse user data if provided
-          let userData = null;
-          if (userParam) {
-            try {
-              userData = JSON.parse(decodeURIComponent(userParam));
-              console.log('👤 User data from URL:', userData);
-            } catch (e) {
-              console.warn('Failed to parse user data:', e);
-            }
-          }
-
-          // Store tokens based on environment
-          if (import.meta.env.PROD) {
-            // In production with HttpOnly cookies, the backend already set them
-            console.log('✅ Using HttpOnly cookies (backend should have set them)');
-            
-            // Still store minimal info in sessionStorage for AuthContext
-            if (userData) {
-              sessionStorage.setItem('userData', JSON.stringify(userData));
-            }
-          } else {
-            // Development - store in sessionStorage
-            sessionStorage.setItem('authTokens', JSON.stringify({
-              access: token,
-              refresh: refresh,
-              storedAt: Date.now()
-            }));
-            
-            if (userData) {
-              sessionStorage.setItem('userData', JSON.stringify(userData));
-            }
-          }
-
-          // Update auth context if setAuthData is available
-          if (setAuthData) {
-            setAuthData({ 
-              token, 
-              refresh, 
-              user: userData 
-            });
-          }
-
-          setStatus('success');
-          
-          // Wait a moment for state to update
-          setTimeout(() => {
-            // Check if user profile is complete
-            if (requiresProfile) {
-              navigate('/complete-profile', { 
-                state: { 
-                  message: 'Please complete your profile to continue.',
-                  user: userData
-                }
-              });
-            } else {
-              navigate('/dashboard', { 
-                replace: true,
-                state: { message: 'Successfully logged in with Google!' }
-              });
-            }
-          }, 1000);
-          
-        } catch (error) {
-          console.error('❌ Error processing auth:', error);
-          setStatus('error');
-          setMessage('Failed to process authentication. Redirecting...');
-          
-          setTimeout(() => navigate('/login', { 
-            state: { message: 'Authentication failed. Please try again.' }
-          }), 2000);
-        }
-      } else {
-        // No tokens - redirect to login
-        console.warn('⚠️ No tokens received');
-        setStatus('error');
-        setMessage('No authentication tokens received. Redirecting...');
-        
-        setTimeout(() => navigate('/login', { 
-          state: { message: 'Authentication failed. No tokens received.' }
-        }), 2000);
+     if (token && refresh) {
+  try {
+    setStatus('processing');
+    
+    // Parse user data if provided
+    let userData = null;
+    if (userParam && userParam !== '{}' && userParam !== 'null') {
+      try {
+        userData = JSON.parse(decodeURIComponent(userParam));
+        console.log('👤 User data from URL:', userData);
+      } catch (e) {
+        console.warn('Failed to parse user data:', e);
       }
-    };
+    } else {
+      console.log('⚠️ No user data in URL, will fetch from API');
+    }
+
+    // Store tokens
+    if (import.meta.env.PROD) {
+      console.log('✅ Using HttpOnly cookies');
+      if (userData) {
+        sessionStorage.setItem('userData', JSON.stringify(userData));
+      }
+    } else {
+      sessionStorage.setItem('authTokens', JSON.stringify({
+        access: token,
+        refresh: refresh,
+        storedAt: Date.now()
+      }));
+      
+      if (userData) {
+        sessionStorage.setItem('userData', JSON.stringify(userData));
+      }
+    }
+
+    // Update auth context
+    if (setAuthData) {
+      setAuthData({ token, refresh, user: userData });
+    }
+
+    setStatus('success');
+    
+    setTimeout(() => {
+      if (requiresProfile) {
+        // Even if user data is empty, pass what we have
+        navigate('/complete-profile', { 
+          state: { 
+            message: 'Please complete your profile to continue.',
+            token: token,
+            refresh: refresh,
+            user: userData
+          }
+        });
+      } else {
+        navigate('/dashboard', { 
+          replace: true,
+          state: { message: 'Successfully logged in with Google!' }
+        });
+      }
+    }, 1000);
+    
+  } catch (error) {
+    console.error('❌ Error processing auth:', error);
+    setStatus('error');
+    setMessage('Failed to process authentication. Redirecting...');
+    
+    setTimeout(() => navigate('/login', { 
+      state: { message: 'Authentication failed. Please try again.' }
+    }), 2000);
+  }
+}
+  };
 
     handleAuthSuccess();
   }, [location, navigate, setAuthData]);

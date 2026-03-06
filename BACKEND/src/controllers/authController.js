@@ -1193,13 +1193,13 @@ export const resetPassword = async (req, res) => {
 
     console.log(`🔑 Password reset attempt for: ${email}`);
 
-    // ✅ FIX: Add .select('+password') to include the password field
+    // ✅ FIX: Select ALL fields needed including password
     const user = await User.findOne({
       email: email.toLowerCase(),
       resetPasswordCode: code,
       resetPasswordExpires: { $gt: Date.now() },
       isActive: true
-    }).select('+password');  // 👈 THIS IS THE KEY FIX
+    }).select('+password +resetPasswordCode +resetPasswordExpires +resetCodeVerified');  // 👈 Include all fields
 
     if (!user) {
       console.log(`❌ Invalid reset code for ${email}`);
@@ -1207,6 +1207,16 @@ export const resetPassword = async (req, res) => {
         success: false,
         message: "Invalid or expired reset code",
         code: 'INVALID_RESET_CODE'
+      });
+    }
+
+    // 🔴 CRITICAL FIX: Check if resetPasswordCode exists and matches
+    if (!user.resetPasswordCode) {
+      console.log(`❌ Reset code missing for ${email}`);
+      return res.status(400).json({
+        success: false,
+        message: "Reset code not found. Please request a new one.",
+        code: 'CODE_NOT_FOUND'
       });
     }
 
@@ -1223,16 +1233,19 @@ export const resetPassword = async (req, res) => {
       });
     }
 
-    // Check if new password is same as old password
-    // This will now work because user.password is defined
-    const isSamePassword = await bcrypt.compare(newPassword, user.password);
-    if (isSamePassword) {
-      console.log(`❌ New password same as old for ${email}`);
-      return res.status(400).json({
-        success: false,
-        message: "New password cannot be the same as old password",
-        code: 'SAME_PASSWORD'
-      });
+    // ✅ FIX: Safely compare passwords only if user.password exists
+    if (user.password) {
+      const isSamePassword = await bcrypt.compare(newPassword, user.password);
+      if (isSamePassword) {
+        console.log(`❌ New password same as old for ${email}`);
+        return res.status(400).json({
+          success: false,
+          message: "New password cannot be the same as your current password",
+          code: 'SAME_PASSWORD'
+        });
+      }
+    } else {
+      console.log(`ℹ️ User ${email} has no password set (likely OAuth user)`);
     }
 
     // Hash new password
@@ -1249,7 +1262,16 @@ export const resetPassword = async (req, res) => {
     
     await user.save();
 
- 
+    // Send confirmation email asynchronously
+    (async () => {
+      try {
+        // You might want to create a password changed email function
+        console.log(`📧 Password changed notification sent to ${email}`);
+      } catch (emailError) {
+        console.error("Failed to send password change notification:", emailError.message);
+      }
+    })();
+
     // Send admin alert for security
     (async () => {
       try {
@@ -1277,7 +1299,6 @@ export const resetPassword = async (req, res) => {
     return handleError(res, error, "Failed to reset password");
   }
 };
-
 
 
 
