@@ -72,6 +72,14 @@ const HeaderMiddle = () => {
     }
   };
 
+  // Handle backdrop click to close dropdown
+  const handleBackdropClick = (e) => {
+    // Only close if clicking the backdrop itself, not the dropdown content
+    if (e.target === e.currentTarget) {
+      setIsAccountMenuOpen(false);
+    }
+  };
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -81,14 +89,24 @@ const HeaderMiddle = () => {
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
         setIsAccountMenuOpen(false);
       }
-      if (mobileAccountMenuRef.current && !mobileAccountMenuRef.current.contains(event.target)) {
-        setIsAccountMenuOpen(false);
-      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    if (isMobileMenuOpen || isAccountMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isMobileMenuOpen, isAccountMenuOpen]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -465,17 +483,21 @@ const HeaderMiddle = () => {
         )}
       </div>
 
-      {/* Mobile Account Dropdown - FIXED Z-INDEX AND POSITIONING */}
+      {/* Mobile Account Dropdown - FIXED CLICK ISSUE */}
       {isLoggedIn && isAccountMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-[200]" ref={mobileAccountMenuRef}>
-          {/* Modern Backdrop with blur */}
-          <div 
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setIsAccountMenuOpen(false)}
-          />
+        <div 
+          className="md:hidden fixed inset-0 z-[200] flex items-end justify-center"
+          onClick={handleBackdropClick}
+        >
+          {/* Backdrop with blur - but won't block clicks on content */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           
-          {/* Modern Slide-up Panel */}
-          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl transform transition-all duration-300 animate-in slide-in-from-bottom max-h-[85vh] overflow-hidden">
+          {/* Content - positioned above backdrop with pointer-events-auto */}
+          <div 
+            ref={mobileAccountMenuRef}
+            className="relative w-full bg-white rounded-t-3xl shadow-2xl transform transition-all duration-300 animate-in slide-in-from-bottom max-h-[85vh] overflow-hidden pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header with close button */}
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <div className="flex items-center space-x-3">
@@ -512,7 +534,7 @@ const HeaderMiddle = () => {
               </div>
             </div>
 
-            {/* Menu Items with better spacing */}
+            {/* Menu Items with better spacing - CLICKABLE */}
             <div className="px-4 pb-6 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 200px)' }}>
               {accountMenuItems.map((section, idx) => (
                 <div key={idx} className="mb-4 last:mb-0">
@@ -528,7 +550,7 @@ const HeaderMiddle = () => {
                         key={itemIdx}
                         to={item.path}
                         onClick={() => setIsAccountMenuOpen(false)}
-                        className="flex items-center gap-3 px-4 py-3.5 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                        className="flex items-center gap-3 px-4 py-3.5 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer"
                       >
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100">
                           <span className="text-gray-500">{item.icon}</span>
@@ -545,7 +567,7 @@ const HeaderMiddle = () => {
             <div className="border-t border-gray-100 p-6">
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-red-50 to-red-50 text-red-600 hover:from-red-100 hover:to-red-100 rounded-xl font-semibold transition-colors shadow-sm"
+                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-red-50 to-red-50 text-red-600 hover:from-red-100 hover:to-red-100 rounded-xl font-semibold transition-colors shadow-sm cursor-pointer"
               >
                 <LogOut className="w-5 h-5" />
                 Sign Out
