@@ -20,7 +20,7 @@
     "express-mongo-sanitize": "2.2.0",
     "express-rate-limit": "^8.2.1",
     "express-session": "^1.19.0",
-    "express-validator": "^7.2.1",
+    "express-validator": "^7.3.1",
     "fuse.js": "^7.1.0",
     "geoip-lite": "^1.4.10",
     "handlebars": "^4.7.8",
@@ -68,17 +68,16 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-"scripts": {
+  "scripts": {
     "start": "node --max-old-space-size=4096 src/server.js",
-    "dev": "nodemon",                 
-    "dev:debug": "nodemon --inspect",    
+    "dev": "nodemon",
+    "dev:debug": "nodemon --inspect",
     "dev:gc": "node --max-old-space-size=4096 --expose-gc src/server.js",
     "dev:monitor": "node scripts/monitor.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:monitor\"",
     "create-admin": "node scripts/create-admin-simple.js",
     "memory:check": "node -e \"console.log(process.memoryUsage())\""
   },
-
   "keywords": [],
   "author": "",
   "license": "ISC",

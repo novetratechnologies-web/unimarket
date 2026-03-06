@@ -290,6 +290,32 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 
+
+// ============================================
+// HEALTH CHECK ENDPOINTS - ADD THESE
+// ============================================
+
+// Root health check (without /api)
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Server is healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    uptime: process.uptime()
+  });
+});
+
+// API health check (with /api)
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'API is healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV
+  });
+});
+
 // Handle preflight requests explicitly
 app.options('/', cors());
 
