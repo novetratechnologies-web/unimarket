@@ -1,6 +1,6 @@
-// src/contexts/AuthContext.jsx - PRODUCTION READY VERSION
+// src/contexts/AuthContext.jsx - COMPLETELY FIXED VERSION
 import { createContext, useState, useContext, useEffect, useRef, useCallback, useMemo } from 'react';
-import { api } from '../api';
+import { api } from '../api/index';
 import config from '../config/env';
 import { AUTH_KEYS, API_ENDPOINTS, TOKEN_CONFIG } from '../constants/auth';
 
@@ -53,7 +53,6 @@ export function AuthProvider({ children }) {
   const tokenService = useMemo(() => ({
     getStoredTokens: () => {
       try {
-        // ALWAYS check sessionStorage first (works in all environments)
         const stored = sessionStorage.getItem(AUTH_KEYS.TOKENS);
         if (stored) {
           const parsed = JSON.parse(stored);
@@ -65,13 +64,11 @@ export function AuthProvider({ children }) {
           return parsed;
         }
 
-        // In production, also check cookies as fallback (though HttpOnly cookies can't be read)
         if (isProduction) {
           const accessToken = getCookie('accessToken');
           const refreshToken = getCookie('refreshToken');
           if (accessToken && refreshToken) {
             console.log('🍪 Found tokens in cookies');
-            // Store in sessionStorage for future use
             const tokens = { access: accessToken, refresh: refreshToken, storedAt: Date.now() };
             sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify(tokens));
             return tokens;
@@ -97,7 +94,6 @@ export function AuthProvider({ children }) {
           return false;
         }
 
-        // ALWAYS store in sessionStorage (works in all environments)
         const tokensWithMeta = {
           ...tokensData,
           storedAt: Date.now()
@@ -105,11 +101,9 @@ export function AuthProvider({ children }) {
         sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify(tokensWithMeta));
         console.log('✅ Tokens stored in sessionStorage');
 
-        // In production, also set non-HttpOnly cookies as fallback
         if (isProduction) {
           document.cookie = `accessToken=${tokensData.access}; Path=/; SameSite=Strict; Secure; Max-Age=${TOKEN_CONFIG.ACCESS_EXPIRY}`;
           document.cookie = `refreshToken=${tokensData.refresh}; Path=/; SameSite=Strict; Secure; Max-Age=${TOKEN_CONFIG.REFRESH_EXPIRY}`;
-          console.log('🍪 Tokens also set in cookies (fallback)');
         }
 
         return true;
@@ -124,7 +118,6 @@ export function AuthProvider({ children }) {
         console.log('🗑️ Clearing tokens');
         sessionStorage.removeItem(AUTH_KEYS.TOKENS);
         
-        // Clear cookies
         document.cookie = 'accessToken=; Max-Age=0; Path=/';
         document.cookie = 'refreshToken=; Max-Age=0; Path=/';
         document.cookie = 'csrf_token=; Max-Age=0; Path=/';
@@ -170,7 +163,11 @@ export function AuthProvider({ children }) {
         const stored = sessionStorage.getItem(AUTH_KEYS.USER_DATA);
         if (stored) {
           const parsed = JSON.parse(stored);
-          console.log('👤 Found user in sessionStorage:', { email: parsed.email });
+          console.log('👤 Found user in sessionStorage:', { 
+            email: parsed.email,
+            username: parsed.username,
+            gender: parsed.gender 
+          });
           return parsed;
         }
         return null;
@@ -182,35 +179,67 @@ export function AuthProvider({ children }) {
 
     setUser: (userData) => {
       try {
-        console.log('👤 Setting user data:', { 
-          email: userData?.email,
-          isVerified: userData?.isVerified 
-        });
+        console.log('👤 Setting user data - RAW:', userData);
 
         if (!userData) {
           this.clearUser();
           return false;
         }
 
-        // Only store non-sensitive user data
-        const safeUserData = {
+        // Store the COMPLETE user object with ALL fields
+        const completeUserData = {
           id: userData?.id || userData?._id,
           email: userData?.email,
           firstName: userData?.firstName,
           lastName: userData?.lastName,
-          isVerified: userData?.isVerified || false,
-          university: userData?.university,
+          username: userData?.username,
           phone: userData?.phone,
+          alternativePhone: userData?.alternativePhone,
+          university: userData?.university,
+          dateOfBirth: userData?.dateOfBirth,
+          gender: userData?.gender,
+          bio: userData?.bio,
+          isVerified: userData?.isVerified || false,
           avatar: userData?.avatar,
           role: userData?.role || 'user',
-          lastActive: userData?.lastActive || new Date().toISOString()
+          lastActive: userData?.lastActive || new Date().toISOString(),
+          location: userData?.location || { city: null, country: null },
+          socialLinks: userData?.socialLinks || {
+            github: null,
+            twitter: null,
+            linkedin: null,
+            instagram: null
+          },
+          interests: userData?.interests || [],
+          preferences: userData?.preferences || {
+            emailNotifications: true,
+            pushNotifications: true,
+            twoFactorEnabled: false,
+            theme: 'auto',
+            privacy: {
+              profileVisibility: 'public',
+              showEmail: false,
+              showPhone: false,
+              showUniversity: true,
+              showWishlist: false,
+              showReviews: true,
+              showListings: true
+            }
+          }
         };
 
-        sessionStorage.setItem(AUTH_KEYS.USER_DATA, JSON.stringify(safeUserData));
-        setUser(safeUserData);
+        console.log('📦 COMPLETE USER DATA STORED:', {
+          username: completeUserData.username,
+          gender: completeUserData.gender,
+          bio: completeUserData.bio,
+          dateOfBirth: completeUserData.dateOfBirth
+        });
+
+        sessionStorage.setItem(AUTH_KEYS.USER_DATA, JSON.stringify(completeUserData));
+        setUser(completeUserData);
         setIsAuthenticated(true);
 
-        if (!safeUserData.isVerified) {
+        if (!completeUserData.isVerified) {
           console.log('⚠️ User is not verified');
           setAuthError('EMAIL_NOT_VERIFIED');
         } else {
@@ -249,12 +278,25 @@ export function AuthProvider({ children }) {
     }
   }), [user]);
 
+  // ==================== CLEAR AUTH ====================
+  const clearAuth = useCallback(() => {
+    console.log('🧹 Clearing all auth data');
+    tokenService.clearTokens();
+    userService.clearUser();
+    api.removeHeader('Authorization');
+    csrfToken.current = null;
+
+    if (refreshTimeout.current) {
+      clearTimeout(refreshTimeout.current);
+      refreshTimeout.current = null;
+    }
+  }, [tokenService, userService]);
+
   // ==================== TOKEN UTILITIES ====================
   const isTokenExpired = useCallback((token) => {
     if (!token) return true;
 
     try {
-      // Check if it's a JWT (has 3 parts)
       if (token.split('.').length !== 3) {
         console.warn('⚠️ Invalid token format');
         return true;
@@ -269,7 +311,7 @@ export function AuthProvider({ children }) {
 
       const expiryTime = payload.exp * 1000;
       const currentTime = Date.now();
-      const bufferTime = TOKEN_CONFIG.REFRESH_THRESHOLD || 5 * 60 * 1000; // 5 minutes default
+      const bufferTime = TOKEN_CONFIG.REFRESH_THRESHOLD || 5 * 60 * 1000;
 
       const isExpired = currentTime + bufferTime >= expiryTime;
       
@@ -286,6 +328,42 @@ export function AuthProvider({ children }) {
       return true;
     }
   }, []);
+
+  // ==================== 🔥 FIXED: REFRESH USER (defined before it's used) ====================
+  const refreshUser = useCallback(async () => {
+    try {
+      console.log('🔄 Refreshing user data from profile endpoint...');
+      
+      const response = await api.get('/profile');
+
+      console.log('📨 Refresh user response:', response);
+
+      if (response?.success && response?.user) {
+        const userData = response.user;
+        console.log('✅ Got complete profile data:', {
+          username: userData.username,
+          gender: userData.gender,
+          bio: userData.bio,
+          dateOfBirth: userData.dateOfBirth
+        });
+        
+        userService.setUser(userData);
+        return userData;
+      } else {
+        console.warn('⚠️ Refresh user returned unsuccessful:', response);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Refresh user error:', error);
+      
+      if (error.response?.status === 401) {
+        console.log('🔒 Session expired during refresh');
+        clearAuth();
+      }
+      
+      return null;
+    }
+  }, [userService, clearAuth]);
 
   const scheduleTokenRefresh = useCallback((accessToken) => {
     if (refreshTimeout.current) {
@@ -321,6 +399,7 @@ export function AuthProvider({ children }) {
     }
   }, [tokenService]);
 
+  // ==================== REFRESH TOKEN ====================
   const refreshToken = useCallback(async (refreshTokenValue) => {
     if (refreshPromise.current) {
       console.log('🔄 Already refreshing, waiting...');
@@ -341,18 +420,51 @@ export function AuthProvider({ children }) {
           }
         });
 
-        if (response?.success && response.data?.tokens) {
-          const newTokens = response.data.tokens;
-          
-          tokenService.setTokens(newTokens);
-          api.setHeader('Authorization', `Bearer ${newTokens.access}`);
-          scheduleTokenRefresh(newTokens.access);
-          
-          console.log('✅ Token refresh successful');
-          return newTokens;
-        } else {
-          throw new Error(response?.message || 'Token refresh failed');
+        console.log('🔄 Token refresh raw response:', response);
+
+        // Handle multiple response structures
+        let newTokens = null;
+
+        if (response?.data?.tokens?.access && response?.data?.tokens?.refresh) {
+          newTokens = response.data.tokens;
         }
+        else if (response?.data?.access && response?.data?.refresh) {
+          newTokens = {
+            access: response.data.access,
+            refresh: response.data.refresh
+          };
+        }
+        else if (response?.tokens?.access && response?.tokens?.refresh) {
+          newTokens = response.tokens;
+        }
+        else if (response?.access && response?.refresh) {
+          newTokens = {
+            access: response.access,
+            refresh: response.refresh
+          };
+        }
+
+        if (!newTokens) {
+          console.error('❌ Could not extract tokens from response:', response);
+          throw new Error('Invalid refresh response structure');
+        }
+
+        if (!newTokens.access || !newTokens.refresh) {
+          console.error('❌ Invalid tokens extracted:', newTokens);
+          throw new Error('Invalid tokens received');
+        }
+
+        tokenService.setTokens(newTokens);
+        api.setHeader('Authorization', `Bearer ${newTokens.access}`);
+        
+        // Refresh user data after token refresh
+        await refreshUser();
+        
+        scheduleTokenRefresh(newTokens.access);
+        
+        console.log('✅ Token refresh successful');
+        return newTokens;
+
       } catch (error) {
         console.error('❌ Token refresh error:', error);
         
@@ -369,20 +481,7 @@ export function AuthProvider({ children }) {
     })();
 
     return refreshPromise.current;
-  }, [tokenService, scheduleTokenRefresh, appBaseURL]);
-
-  const clearAuth = useCallback(() => {
-    console.log('🧹 Clearing all auth data');
-    tokenService.clearTokens();
-    userService.clearUser();
-    api.removeHeader('Authorization');
-    csrfToken.current = null;
-
-    if (refreshTimeout.current) {
-      clearTimeout(refreshTimeout.current);
-      refreshTimeout.current = null;
-    }
-  }, [tokenService, userService]);
+  }, [tokenService, scheduleTokenRefresh, appBaseURL, clearAuth, refreshUser]);
 
   // ==================== AUTH INITIALIZATION ====================
   useEffect(() => {
@@ -399,12 +498,9 @@ export function AuthProvider({ children }) {
         console.log('🔍 Stored data:', {
           hasTokens: !!storedTokens,
           hasUser: !!storedUser,
-          tokens: storedTokens ? '✅' : '❌',
-          user: storedUser ? '✅' : '❌'
         });
 
         if (storedTokens?.access && storedTokens?.refresh && storedUser) {
-          // We have both tokens and user
           userService.setUser(storedUser);
           api.setHeader('Authorization', `Bearer ${storedTokens.access}`);
 
@@ -426,8 +522,7 @@ export function AuthProvider({ children }) {
             scheduleTokenRefresh(storedTokens.access);
           }
         } else if (storedUser && !storedTokens) {
-          // We have user but no tokens - possible cookie auth
-          console.log('👤 User found without tokens - assuming cookie auth');
+          console.log('👤 User found without tokens - possible cookie auth');
           setUser(storedUser);
           setIsAuthenticated(true);
         } else {
@@ -498,25 +593,39 @@ export function AuthProvider({ children }) {
         };
       }
 
-      // Store auth data
+      // Store tokens first
       tokenService.setTokens(tokensData);
-      userService.setUser(userData);
       api.setHeader('Authorization', `Bearer ${tokensData.access}`);
+
+      // Fetch complete profile immediately after login
+      console.log('🔄 Fetching complete profile after login...');
+      let completeUserData = userData;
+      
+      try {
+        const profileResponse = await api.get('/profile');
+        if (profileResponse?.success && profileResponse?.user) {
+          completeUserData = profileResponse.user;
+          console.log('✅ Got complete profile data');
+        }
+      } catch (profileError) {
+        console.warn('⚠️ Could not fetch profile, using login data:', profileError);
+      }
+
+      // Store complete user data
+      userService.setUser(completeUserData);
 
       if (responseCsrfToken) {
         tokenService.setCSRFToken(responseCsrfToken);
       }
 
       scheduleTokenRefresh(tokensData.access);
-
-      // Force auth state update
       setIsAuthenticated(true);
       
-      console.log('✅ Login successful for:', userData.email);
+      console.log('✅ Login successful for:', completeUserData.email);
 
       return {
         success: true,
-        user: userData,
+        user: completeUserData,
         tokens: tokensData
       };
     } catch (error) {
@@ -526,7 +635,6 @@ export function AuthProvider({ children }) {
         throw error;
       }
 
-      // User-friendly error messages
       const errorMap = {
         'Network Error': 'Cannot connect to server. Please check your internet connection.',
         'timeout': 'Request timeout. Please try again.',
@@ -598,6 +706,8 @@ export function AuthProvider({ children }) {
         headers: csrfTokenValue ? { 'X-CSRF-Token': csrfTokenValue } : {}
       });
 
+      console.log('📨 Profile update response:', response);
+
       if (!response?.success) {
         throw new Error(response?.message || 'Profile update failed');
       }
@@ -635,26 +745,6 @@ export function AuthProvider({ children }) {
       }, 100);
     }
   }, [tokenService, clearAuth, appBaseURL]);
-
-  // ==================== REFRESH USER ====================
-  const refreshUser = useCallback(async () => {
-    try {
-      console.log('🔄 Refreshing user data...');
-      const response = await api.get(API_ENDPOINTS.ME);
-
-      if (response?.success) {
-        const userData = response.data.user || response.data;
-        userService.setUser(userData);
-        return userData;
-      }
-    } catch (error) {
-      console.error('❌ Refresh user error:', error);
-      if (error.response?.status === 401) {
-        clearAuth();
-      }
-      throw error;
-    }
-  }, [userService, clearAuth]);
 
   // ==================== CONTEXT VALUE ====================
   const value = useMemo(() => ({

@@ -257,118 +257,149 @@ apiClient.interceptors.response.use(
       });
     }
 
-    // ==================== 401 Unauthorized - Token Refresh ====================
-    if (error.response?.status === 401 && 
-        !originalRequest._retry && 
-        !originalRequest.url.includes('/auth/login') && 
-        !originalRequest.url.includes('/auth/register') &&
-        !originalRequest.url.includes('/auth/refresh')) {
-      
-      if (isRefreshing) {
-        // Queue this request while token refreshes
-        try {
-          const token = await new Promise((resolve, reject) => {
-            failedQueue.push({ resolve, reject });
-          });
-          originalRequest.headers['Authorization'] = `Bearer ${token}`;
-          return apiClient(originalRequest);
-        } catch (err) {
-          return Promise.reject(err);
+// ==================== 401 Unauthorized - Token Refresh ====================
+if (error.response?.status === 401 && 
+    !originalRequest._retry && 
+    !originalRequest.url.includes('/auth/login') && 
+    !originalRequest.url.includes('/auth/register') &&
+    !originalRequest.url.includes('/auth/refresh')) {
+  
+  if (isRefreshing) {
+    // Queue this request while token refreshes
+    try {
+      const token = await new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      });
+      originalRequest.headers['Authorization'] = `Bearer ${token}`;
+      return apiClient(originalRequest);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  
+  originalRequest._retry = true;
+  isRefreshing = true;
+  
+  try {
+    // Get refresh token
+    let refreshTokenValue = null;
+    
+    if (isProduction || isLiveDomain) {
+      const cookies = document.cookie.split(';');
+      for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'refreshToken') {
+          refreshTokenValue = value;
+          break;
         }
       }
-      
-      originalRequest._retry = true;
-      isRefreshing = true;
-      
-      try {
-        // Get refresh token
-        let refreshTokenValue = null;
-        
-        if (isProduction || isLiveDomain) {
-          const cookies = document.cookie.split(';');
-          for (let cookie of cookies) {
-            const [name, value] = cookie.trim().split('=');
-            if (name === 'refreshToken') {
-              refreshTokenValue = value;
-              break;
-            }
-          }
-        } else {
-          const stored = sessionStorage.getItem(AUTH_KEYS.TOKENS);
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            refreshTokenValue = parsed.refresh;
-          }
-        }
-        
-        if (!refreshTokenValue) {
-          throw new Error('No refresh token available');
-        }
-
-        // Attempt token refresh
-        const response = await apiClient.post('/auth/refresh', 
-          { refresh: refreshTokenValue },
-          { 
-            headers: { 'X-Refresh-Token': 'true' },
-            _retry: true // Prevent infinite loop
-          }
-        );
-        
-        if (response?.tokens) {
-          const tokens = response.tokens;
-          
-          // Store new tokens
-          if (isProduction || isLiveDomain) {
-            // In production, rely on HttpOnly cookies set by server
-            // Still store in sessionStorage for client-side access
-            sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify(tokens));
-          } else {
-            sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify(tokens));
-          }
-          
-          // Update authorization header
-          originalRequest.headers['Authorization'] = `Bearer ${tokens.access}`;
-          
-          // Process queued requests
-          processQueue(null, tokens.access);
-          
-          // Retry original request
-          return apiClient(originalRequest);
-        }
-        
-        throw new Error('Invalid refresh response');
-        
-      } catch (refreshError) {
-        console.error('❌ Token refresh failed:', refreshError);
-        
-        // Clear auth data
-        sessionStorage.removeItem(AUTH_KEYS.TOKENS);
-        sessionStorage.removeItem(AUTH_KEYS.USER_DATA);
-        
-        // Clear cookies
-        document.cookie = 'accessToken=; Max-Age=0; Path=/';
-        document.cookie = 'refreshToken=; Max-Age=0; Path=/';
-        document.cookie = 'csrf_token=; Max-Age=0; Path=/';
-        
-        // Notify app about auth expiry
-        window.dispatchEvent(new CustomEvent('auth:expired', { 
-          detail: { reason: 'refresh_failed' }
-        }));
-        
-        // Process queue with error
-        processQueue(refreshError, null);
-        
-        return Promise.reject({
-          success: false,
-          message: 'Your session has expired. Please login again.',
-          code: 'SESSION_EXPIRED',
-          status: 401
-        });
-      } finally {
-        isRefreshing = false;
+    } else {
+      const stored = sessionStorage.getItem(AUTH_KEYS.TOKENS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        refreshTokenValue = parsed.refresh;
       }
     }
+    
+    if (!refreshTokenValue) {
+      throw new Error('No refresh token available');
+    }
 
+    // Attempt token refresh
+    const response = await apiClient.post('/auth/refresh', 
+      { refresh: refreshTokenValue },
+      { 
+        headers: { 'X-Refresh-Token': 'true' },
+        _retry: true // Prevent infinite loop
+      }
+    );
+
+    console.log('🔄 Refresh response:', response);
+
+    // Handle multiple response structures
+    let newTokens = null;
+
+    // Structure 1: response.data.tokens
+    if (response?.data?.tokens?.access && response?.data?.tokens?.refresh) {
+      newTokens = response.data.tokens;
+      console.log('✅ Structure 1: response.data.tokens');
+    }
+    // Structure 2: response.data (direct access/refresh)
+    else if (response?.data?.access && response?.data?.refresh) {
+      newTokens = {
+        access: response.data.access,
+        refresh: response.data.refresh
+      };
+      console.log('✅ Structure 2: response.data.access/refresh');
+    }
+    // Structure 3: response.tokens
+    else if (response?.tokens?.access && response?.tokens?.refresh) {
+      newTokens = response.tokens;
+      console.log('✅ Structure 3: response.tokens');
+    }
+    // Structure 4: response (direct access/refresh)
+    else if (response?.access && response?.refresh) {
+      newTokens = {
+        access: response.access,
+        refresh: response.refresh
+      };
+      console.log('✅ Structure 4: response.access/refresh');
+    }
+
+    if (!newTokens) {
+      console.error('❌ Could not extract tokens from response:', response);
+      throw new Error('Invalid refresh response structure');
+    }
+
+    // 🔥 CRITICAL FIX: Store tokens and update headers
+    const tokensWithMeta = {
+      ...newTokens,
+      storedAt: Date.now()
+    };
+    sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify(tokensWithMeta));
+    
+    // Update the default Authorization header for all future requests
+    apiClient.defaults.headers.common['Authorization'] = `Bearer ${newTokens.access}`;
+    
+    // 🔥 CRITICAL FIX: Update the original request's headers
+    originalRequest.headers['Authorization'] = `Bearer ${newTokens.access}`;
+    
+    // Process queued requests with the new token
+    processQueue(null, newTokens.access);
+    
+    // Retry original request
+    return apiClient(originalRequest);
+    
+  } catch (refreshError) {
+    console.error('❌ Token refresh failed:', refreshError);
+    
+    // Clear auth data
+    sessionStorage.removeItem(AUTH_KEYS.TOKENS);
+    sessionStorage.removeItem(AUTH_KEYS.USER_DATA);
+    
+    // Clear cookies
+    document.cookie = 'accessToken=; Max-Age=0; Path=/';
+    document.cookie = 'refreshToken=; Max-Age=0; Path=/';
+    document.cookie = 'csrf_token=; Max-Age=0; Path=/';
+    
+    // Notify app about auth expiry
+    window.dispatchEvent(new CustomEvent('auth:expired', { 
+      detail: { reason: 'refresh_failed' }
+    }));
+    
+    // Process queue with error
+    processQueue(refreshError, null);
+    
+    return Promise.reject({
+      success: false,
+      message: 'Your session has expired. Please login again.',
+      code: 'SESSION_EXPIRED',
+      status: 401
+    });
+  } finally {
+    isRefreshing = false;
+  }
+}
     // ==================== 403 Forbidden / CSRF Error ====================
     if (error.response?.status === 403 || error.response?.status === 419) {
       console.warn('🛡️ CSRF token error or forbidden access');
