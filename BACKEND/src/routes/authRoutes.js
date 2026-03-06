@@ -649,6 +649,34 @@ router.post(
   resetPassword
 );
 
+// ============================================
+// CSRF TOKEN ENDPOINT - ADD THIS
+// ============================================
+
+/**
+ * @route   GET /api/auth/csrf-token
+ * @desc    Get CSRF token for forms
+ * @access  Public
+ */
+router.get('/csrf-token', (req, res) => {
+  // Generate a simple token for development
+  const token = crypto.randomBytes(32).toString('hex');
+  
+  // Set as cookie for frontend to read
+  res.cookie('csrf_token', token, {
+    httpOnly: false, // Allow JS to read it
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  });
+  
+  res.json({
+    success: true,
+    csrfToken: token,
+    message: 'CSRF token generated'
+  });
+});
+
 // ==================== EMAIL MANAGEMENT ====================
 
 /** 📧 Check Email Availability */
