@@ -490,7 +490,7 @@ const HeaderMiddle = () => {
           onClick={handleBackdropClick}
         >
           {/* Backdrop with blur - but won't block clicks on content */}
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+       
           
           {/* Content - positioned above backdrop with pointer-events-auto */}
           <div 
