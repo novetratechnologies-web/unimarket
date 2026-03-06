@@ -37,7 +37,7 @@ const HeaderMiddle = () => {
   const { user, isAuthenticated, logout, loading } = useAuth();
 
   // ✅ Helper to check auth state safely
-  const isLoggedIn = isAuthenticated && isAuthenticated();
+  const isLoggedIn = isAuthenticated;
 
   const handleSearch = (e) => {
     e.preventDefault();
