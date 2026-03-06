@@ -515,6 +515,31 @@ export const apiCall = async (method, endpoint, data = null, config = {}) => {
   }
 };
 
+const generateClientId = () => {
+  let clientId = localStorage.getItem('client_id');
+  if (!clientId) {
+    clientId = crypto.randomUUID ? crypto.randomUUID() : 
+               Math.random().toString(36).substring(2) + Date.now().toString(36);
+    localStorage.setItem('client_id', clientId);
+  }
+  return clientId;
+};
+
+// Add to axios instance
+apiClient.interceptors.request.use(
+  (config) => {
+    // Add client ID header
+    config.headers['X-Client-ID'] = generateClientId();
+    
+    // Add screen size for better fingerprinting
+    if (typeof window !== 'undefined') {
+      config.headers['X-Screen-Size'] = `${window.screen.width}x${window.screen.height}`;
+    }
+    
+    return config;
+  }
+);
+
 // ============================================
 // 🎯 Convenience Methods
 // ============================================

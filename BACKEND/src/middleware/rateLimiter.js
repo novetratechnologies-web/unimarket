@@ -64,17 +64,26 @@ const generateDeviceFingerprint = (req, includeTimeWindow = true) => {
   const acceptEncoding = req.headers['accept-encoding'] || 'unknown';
   const connection = req.headers['connection'] || 'unknown';
   
-  // 🔥 FIX: Remove IP from fingerprint calculation
+  // Additional browser identifiers for better uniqueness
+  const secChUa = req.headers['sec-ch-ua'] || 'unknown';
+  const secChUaPlatform = req.headers['sec-ch-ua-platform'] || 'unknown';
+  const secChUaMobile = req.headers['sec-ch-ua-mobile'] || 'unknown';
+  
+  // Client-side identifiers (sent from frontend)
+  const clientId = req.headers['x-client-id'] || 'unknown';
+  const screenSize = req.headers['x-screen-size'] || 'unknown';
+  const timezone = req.headers['x-timezone'] || 'unknown';
+  
   const timeWindow = includeTimeWindow 
-    ? Math.floor(Date.now() / (5 * 60 * 1000))
+    ? Math.floor(Date.now() / (15 * 60 * 1000)) // 15-minute window
     : '';
   
-  // Create fingerprint WITHOUT IP - only browser/device characteristics
+  // Create fingerprint WITHOUT IP - use ALL available browser characteristics
   const fingerprint = crypto
     .createHash('sha256')
-    .update(`${userAgent}:${acceptLang}:${acceptEncoding}:${connection}:${timeWindow}`)
+    .update(`${userAgent}:${acceptLang}:${acceptEncoding}:${connection}:${secChUa}:${secChUaPlatform}:${secChUaMobile}:${clientId}:${screenSize}:${timezone}:${timeWindow}`)
     .digest('hex')
-    .substring(0, 20);
+    .substring(0, 24);
   
   return fingerprint;
 };
@@ -89,7 +98,7 @@ const generateIpBasedFingerprint = (req, includeTimeWindow = true) => {
   const connection = req.headers['connection'] || 'unknown';
   
   const timeWindow = includeTimeWindow 
-    ? Math.floor(Date.now() / (5 * 60 * 1000))
+    ? Math.floor(Date.now() / (5 * 60 * 1000)) // 5-minute window
     : '';
   
   const safeIp = ipKeyGenerator(req.ip);
@@ -112,7 +121,7 @@ export const rateLimiter = (options = {}) => {
   }
 
   const defaultOptions = {
-    windowMs: 15 * 60 * 1000,
+    windowMs: 15 * 60 * 1000, // 15 minutes default
     max: 100,
     message: {
       success: false,
@@ -123,6 +132,7 @@ export const rateLimiter = (options = {}) => {
     standardHeaders: true,
     legacyHeaders: false,
     
+    // Default key generator (will be overridden by specific limiters)
     keyGenerator: (req) => {
       if (req.user?._id) {
         return `user:${req.user._id.toString()}`;
@@ -167,21 +177,22 @@ export const rateLimiter = (options = {}) => {
     },
     
     handler: (req, res, next, options) => {
-      const retryAfter = Math.ceil(options.windowMs / 1000 / 60);
+      const retryAfter = Math.ceil(options.windowMs / 1000);
       
       console.warn(`⚠️ Rate limit exceeded:`, {
         ip: req.ip,
         userId: req.user?._id,
         path: req.path,
         method: req.method,
+        key: req.rateLimit?.key,
         userAgent: req.headers['user-agent'],
-        retryAfter: `${retryAfter} minutes`
+        retryAfter: `${retryAfter}s`
       });
 
       res.status(429).json({
         success: false,
         message: options.message.message || 'Too many requests, please try again later',
-        code: 'RATE_LIMIT_EXCEEDED',
+        code: options.message.code || 'RATE_LIMIT_EXCEEDED',
         retryAfter,
         limit: options.max,
         windowMs: options.windowMs
@@ -195,6 +206,21 @@ export const rateLimiter = (options = {}) => {
   };
 
   const config = { ...defaultOptions, ...options };
+  
+  // Ensure custom keyGenerator is preserved
+  if (options.keyGenerator) {
+    config.keyGenerator = options.keyGenerator;
+  }
+
+  // Add debug logging for key generation in development
+  if (isDevelopment) {
+    const originalKeyGenerator = config.keyGenerator;
+    config.keyGenerator = (req) => {
+      const key = originalKeyGenerator(req);
+      console.log(`🔑 Rate limit key for ${req.path}:`, key);
+      return key;
+    };
+  }
 
   if (isProduction && redisClient && redisConnected && !config.store) {
     try {
@@ -217,44 +243,27 @@ export const rateLimiter = (options = {}) => {
   return rateLimit(cleanConfig);
 };
 
+// ============================================
+// AUTHENTICATION LIMITERS (Device + Email based)
+// ============================================
+
 /**
  * Auth rate limiter - Device + Email based (no IP sharing)
  */
 export const authLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 30 * 60 * 1000,
-  max: isDevelopment ? 100 : 10,
+  windowMs: isDevelopment ? 2 * 60 * 1000 : 30 * 60 * 1000, // 2 min dev, 30 min prod
+  max: isDevelopment ? 100 : 15, // 15 attempts per window
   message: {
     success: false,
-    message: 'Too many authentication attempts, please try again later',
+    message: 'Too many authentication attempts. Please try again later.',
     code: 'AUTH_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'auth',
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {
-    const email = req.body?.email || 'anonymous';
-    // 🔥 FIX: Use device fingerprint without IP
+    const email = req.body?.email ? req.body.email.toLowerCase().replace(/[^a-z0-9@.]/g, '') : 'anonymous';
     const deviceFingerprint = generateDeviceFingerprint(req, false);
     return `auth:${email}:${deviceFingerprint}`;
-  }
-});
-
-/**
- * STRICT Auth rate limiter - Device + Email based
- */
-export const strictAuthLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 2 * 60 * 60 * 1000,
-  max: isDevelopment ? 50 : 5,
-  message: {
-    success: false,
-    message: 'Too many sensitive authentication attempts, please try again later',
-    code: 'STRICT_AUTH_RATE_LIMIT_EXCEEDED'
-  },
-  prefix: 'strict-auth',
-  skipSuccessfulRequests: true,
-  keyGenerator: (req) => {
-    const email = req.body?.email || 'anonymous';
-    const deviceFingerprint = generateDeviceFingerprint(req, false);
-    return `strict-auth:${email}:${deviceFingerprint}`;
   }
 });
 
@@ -262,44 +271,58 @@ export const strictAuthLimiter = rateLimiter({
  * Login rate limiter - Device + Email based
  */
 export const loginLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 30 * 60 * 1000,
-  max: isDevelopment ? 100 : 10,
+  windowMs: isDevelopment ? 2 * 60 * 1000 : 30 * 60 * 1000, // 2 min dev, 30 min prod
+  max: isDevelopment ? 100 : 10, // 10 attempts per window
   message: {
     success: false,
-    message: 'Too many login attempts, please try again later',
+    message: 'Too many login attempts. Please try again later.',
     code: 'LOGIN_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'login',
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {
-    const email = req.body?.email || 'anonymous';
+    const email = req.body?.email ? req.body.email.toLowerCase().replace(/[^a-z0-9@.]/g, '') : 'anonymous';
     const deviceFingerprint = generateDeviceFingerprint(req, false);
     return `login:${email}:${deviceFingerprint}`;
   }
 });
 
 /**
- * 🔥 FIXED: Registration rate limiter - Email + Device based (NO IP SHARING)
- * Different devices on same network get different limits
+ * Registration rate limiter - Email + Device based
  */
 export const registerLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 24 * 60 * 60 * 1000,
-  max: isDevelopment ? 50 : 5,
+  windowMs: isDevelopment ? 5 * 60 * 1000 : 24 * 60 * 60 * 1000, // 5 min dev, 24 hours prod
+  max: isDevelopment ? 20 : 3, // 3 registrations per day per device
   message: {
     success: false,
-    message: 'Too many registration attempts, please try again later',
+    message: 'Too many registration attempts. Please try again later.',
     code: 'REGISTER_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'register',
   keyGenerator: (req) => {
-    const email = req.body?.email || 'anonymous';
-    // 🔥 CRITICAL FIX: Use device fingerprint WITHOUT IP
-    // This ensures different devices on same network have separate limits
+    const email = req.body?.email ? req.body.email.toLowerCase().replace(/[^a-z0-9@.]/g, '') : 'anonymous';
     const deviceFingerprint = generateDeviceFingerprint(req, false);
-    
-    // For extra security, also add a network-level limit in a separate limiter
-    // But for registration, device + email is sufficient
     return `register:${email}:${deviceFingerprint}`;
+  }
+});
+
+/**
+ * Strict auth limiter (for sensitive operations)
+ */
+export const strictAuthLimiter = rateLimiter({
+  windowMs: isDevelopment ? 5 * 60 * 1000 : 2 * 60 * 60 * 1000, // 5 min dev, 2 hours prod
+  max: isDevelopment ? 20 : 5, // 5 attempts per 2 hours
+  message: {
+    success: false,
+    message: 'Too many sensitive authentication attempts. Please try again later.',
+    code: 'STRICT_AUTH_RATE_LIMIT_EXCEEDED'
+  },
+  prefix: 'strict-auth',
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    const email = req.body?.email ? req.body.email.toLowerCase().replace(/[^a-z0-9@.]/g, '') : 'anonymous';
+    const deviceFingerprint = generateDeviceFingerprint(req, false);
+    return `strict:${email}:${deviceFingerprint}`;
   }
 });
 
@@ -307,16 +330,17 @@ export const registerLimiter = rateLimiter({
  * Password reset rate limiter - Email + Device based
  */
 export const passwordResetLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 2 * 60 * 60 * 1000,
-  max: isDevelopment ? 50 : 5,
+  windowMs: isDevelopment ? 5 * 60 * 1000 : 2 * 60 * 60 * 1000, // 5 min dev, 2 hours prod
+  max: isDevelopment ? 20 : 5, // 5 attempts per 2 hours
   message: {
     success: false,
-    message: 'Too many password reset attempts, please try again later',
+    message: 'Too many password reset attempts. Please try again later.',
     code: 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'password-reset',
+  skipSuccessfulRequests: true,
   keyGenerator: (req) => {
-    const email = req.body?.email || 'anonymous';
+    const email = req.body?.email ? req.body.email.toLowerCase().replace(/[^a-z0-9@.]/g, '') : 'anonymous';
     const deviceFingerprint = generateDeviceFingerprint(req, false);
     return `password-reset:${email}:${deviceFingerprint}`;
   }
@@ -326,31 +350,35 @@ export const passwordResetLimiter = rateLimiter({
  * Email verification rate limiter - Email + Device based
  */
 export const emailVerificationLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 60 * 1000,
-  max: isDevelopment ? 50 : 3,
+  windowMs: isDevelopment ? 2 * 60 * 1000 : 60 * 60 * 1000, // 2 min dev, 1 hour prod
+  max: isDevelopment ? 30 : 5, // 5 attempts per hour
   message: {
     success: false,
-    message: 'Too many verification attempts, please try again later',
+    message: 'Too many verification attempts. Please try again later.',
     code: 'EMAIL_VERIFICATION_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'email-verification',
+  skipSuccessfulRequests: true,
   keyGenerator: (req) => {
-    const email = req.body?.email || 'anonymous';
+    const email = req.body?.email ? req.body.email.toLowerCase().replace(/[^a-z0-9@.]/g, '') : 'anonymous';
     const deviceFingerprint = generateDeviceFingerprint(req, false);
     return `email-verification:${email}:${deviceFingerprint}`;
   }
 });
 
+// ============================================
+// NETWORK/IP BASED LIMITERS (Global protection)
+// ============================================
+
 /**
- * IP-based network limiter (optional - for additional protection)
- * This runs alongside device-based limiters
+ * IP-based network limiter - prevents DoS attacks
  */
 export const networkLimiter = rateLimiter({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 100, // 100 requests per hour from same IP/network
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 200, // 200 requests per 5 minutes per IP
   message: {
     success: false,
-    message: 'Too many requests from your network, please try again later',
+    message: 'Too many requests from your network. Please slow down.',
     code: 'NETWORK_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'network',
@@ -361,7 +389,7 @@ export const networkLimiter = rateLimiter({
 });
 
 // ============================================
-// EXISTING LIMITERS (unchanged - keep as is)
+// API LIMITERS (General purpose)
 // ============================================
 
 export const apiLimiter = rateLimiter({
@@ -369,18 +397,33 @@ export const apiLimiter = rateLimiter({
   max: isDevelopment ? 1000 : 300,
   message: {
     success: false,
-    message: 'Too many API requests, please slow down',
+    message: 'Too many API requests. Please slow down.',
     code: 'API_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'api'
 });
 
-export const adminLimiter = rateLimiter({
+export const publicLimiter = rateLimiter({
   windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000,
-  max: isDevelopment ? 1000 : 800,
+  max: isDevelopment ? 500 : 200,
   message: {
     success: false,
-    message: 'Too many admin requests, please slow down',
+    message: 'Too many requests. Please try again later.',
+    code: 'PUBLIC_RATE_LIMIT_EXCEEDED'
+  },
+  prefix: 'public'
+});
+
+// ============================================
+// ADMIN LIMITERS
+// ============================================
+
+export const adminLimiter = rateLimiter({
+  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000,
+  max: isDevelopment ? 1000 : 500,
+  message: {
+    success: false,
+    message: 'Too many admin requests. Please slow down.',
     code: 'ADMIN_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'admin',
@@ -392,23 +435,16 @@ export const adminLimiter = rateLimiter({
   }
 });
 
-export const publicLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 5 * 60 * 1000,
-  max: isDevelopment ? 500 : 400,
-  message: {
-    success: false,
-    message: 'Too many requests, please try again later',
-    code: 'PUBLIC_RATE_LIMIT_EXCEEDED'
-  },
-  prefix: 'public'
-});
+// ============================================
+// FEATURE-SPECIFIC LIMITERS
+// ============================================
 
 export const dashboardLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
-  max: isDevelopment ? 1000 : 500,
+  windowMs: isDevelopment ? 30 * 1000 : 60 * 1000,
+  max: isDevelopment ? 500 : 100,
   message: {
     success: false,
-    message: 'Too many dashboard requests, please slow down',
+    message: 'Too many dashboard requests. Please slow down.',
     code: 'DASHBOARD_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'dashboard',
@@ -421,12 +457,28 @@ export const dashboardLimiter = rateLimiter({
   }
 });
 
-export const notificationLimiter = rateLimiter({
-  windowMs: isDevelopment ? 30 * 1000 : 30 * 1000,
-  max: isDevelopment ? 500 : 100,
+export const uploadLimiter = rateLimiter({
+  windowMs: isDevelopment ? 5 * 60 * 1000 : 24 * 60 * 60 * 1000,
+  max: isDevelopment ? 50 : 20,
   message: {
     success: false,
-    message: 'Too many notification requests, please slow down',
+    message: 'Too many upload attempts. Please try again later.',
+    code: 'UPLOAD_RATE_LIMIT_EXCEEDED'
+  },
+  prefix: 'upload',
+  keyGenerator: (req) => {
+    if (req.user?._id) return `upload:user:${req.user._id}`;
+    const fingerprint = generateIpBasedFingerprint(req, true);
+    return `upload:fp:${fingerprint}`;
+  }
+});
+
+export const notificationLimiter = rateLimiter({
+  windowMs: isDevelopment ? 30 * 1000 : 60 * 1000,
+  max: isDevelopment ? 200 : 50,
+  message: {
+    success: false,
+    message: 'Too many notification requests. Please slow down.',
     code: 'NOTIFICATION_RATE_LIMIT_EXCEEDED'
   },
   prefix: 'notification',
@@ -437,85 +489,9 @@ export const notificationLimiter = rateLimiter({
   }
 });
 
-export const activityLimiter = rateLimiter({
-  windowMs: isDevelopment ? 30 * 1000 : 30 * 1000,
-  max: isDevelopment ? 500 : 150,
-  message: {
-    success: false,
-    message: 'Too many activity requests, please slow down',
-    code: 'ACTIVITY_RATE_LIMIT_EXCEEDED'
-  },
-  prefix: 'activity',
-  keyGenerator: (req) => {
-    if (req.user?._id) return `activity:user:${req.user._id}`;
-    const fingerprint = generateIpBasedFingerprint(req, true);
-    return `activity:fp:${fingerprint}`;
-  }
-});
-
-export const orderLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
-  max: isDevelopment ? 1000 : 300,
-  message: {
-    success: false,
-    message: 'Too many order requests, please slow down',
-    code: 'ORDER_RATE_LIMIT_EXCEEDED'
-  },
-  prefix: 'order',
-  keyGenerator: (req) => {
-    if (req.user?._id) return `order:user:${req.user._id}`;
-    const fingerprint = generateIpBasedFingerprint(req, true);
-    return `order:fp:${fingerprint}`;
-  }
-});
-
-export const productLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
-  max: isDevelopment ? 1000 : 400,
-  message: {
-    success: false,
-    message: 'Too many product requests, please slow down',
-    code: 'PRODUCT_RATE_LIMIT_EXCEEDED'
-  },
-  prefix: 'product',
-  keyGenerator: (req) => {
-    if (req.user?._id) return `product:user:${req.user._id}`;
-    const fingerprint = generateIpBasedFingerprint(req, true);
-    return `product:fp:${fingerprint}`;
-  }
-});
-
-export const userLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 60 * 1000,
-  max: isDevelopment ? 1000 : 200,
-  message: {
-    success: false,
-    message: 'Too many user requests, please slow down',
-    code: 'USER_RATE_LIMIT_EXCEEDED'
-  },
-  prefix: 'user',
-  keyGenerator: (req) => {
-    if (req.user?._id) return `user:${req.user._id}`;
-    const fingerprint = generateIpBasedFingerprint(req, true);
-    return `user:fp:${fingerprint}`;
-  }
-});
-
-export const uploadLimiter = rateLimiter({
-  windowMs: isDevelopment ? 60 * 1000 : 24 * 60 * 60 * 1000,
-  max: isDevelopment ? 200 : 50,
-  message: {
-    success: false,
-    message: 'Too many upload attempts, please try again later',
-    code: 'UPLOAD_RATE_LIMIT_EXCEEDED'
-  },
-  prefix: 'upload',
-  keyGenerator: (req) => {
-    if (req.user?._id) return `upload:user:${req.user._id}`;
-    const fingerprint = generateIpBasedFingerprint(req, true);
-    return `upload:fp:${fingerprint}`;
-  }
-});
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
 
 /**
  * Create custom rate limiter with options
