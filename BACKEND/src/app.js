@@ -272,7 +272,10 @@ app.use(cors({
     'Origin',
     'X-Refresh-Token',
     'X-Client-Version',   
-    'X-Client-Platform'    
+    'X-Client-Platform',
+    'X-Screen-Size', 
+    'x-screen-size',       
+    'x-timezone'   
   ],
   exposedHeaders: [
     'X-Request-ID', 

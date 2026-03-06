@@ -26,9 +26,9 @@ export function AuthProvider({ children }) {
   const authCheckInProgress = useRef(false);
 
   // Constants from config
-  const apiBaseURL = config.api?.baseURL || 'http://localhost:5000/api';
-  const appBaseURL = config.app?.baseURL || 'http://localhost:5174';
-  const isProduction = process.env.NODE_ENV === 'production';
+  const apiBaseURL = config.api?.baseURL || 'http://localhost:5000/api' || 'https://unimarket-vtx5.onrender.com/api';
+  const appBaseURL = config.app?.baseURL || 'http://localhost:5174' || 'https://unimatket.store';
+  const isProduction = process.env.NODE_ENV === 'production' ||'https://unimarket-vtx5.onrender.com/api';
 
   console.log('🔧 AuthContext initialized:', {
     isProduction,

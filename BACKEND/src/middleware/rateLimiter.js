@@ -58,6 +58,10 @@ if (isProduction && process.env.REDIS_URL) {
  * Generate a device fingerprint that doesn't include IP
  * This ensures different devices on same network have different fingerprints
  */
+/**
+ * Generate a device fingerprint that doesn't include IP
+ * This ensures different devices on same network have different fingerprints
+ */
 const generateDeviceFingerprint = (req, includeTimeWindow = true) => {
   const userAgent = req.headers['user-agent'] || 'unknown';
   const acceptLang = req.headers['accept-language'] || 'unknown';
@@ -69,10 +73,18 @@ const generateDeviceFingerprint = (req, includeTimeWindow = true) => {
   const secChUaPlatform = req.headers['sec-ch-ua-platform'] || 'unknown';
   const secChUaMobile = req.headers['sec-ch-ua-mobile'] || 'unknown';
   
-  // Client-side identifiers (sent from frontend)
+  // Client-side identifiers - with fallbacks
   const clientId = req.headers['x-client-id'] || 'unknown';
-  const screenSize = req.headers['x-screen-size'] || 'unknown';
-  const timezone = req.headers['x-timezone'] || 'unknown';
+  
+  // 🔥 FIX: Handle missing screen-size header gracefully
+  let screenSize = 'unknown';
+  if (req.headers['x-screen-size']) {
+    screenSize = req.headers['x-screen-size'];
+  } else if (req.headers['X-Screen-Size']) {
+    screenSize = req.headers['X-Screen-Size'];
+  }
+  
+  const timezone = req.headers['x-timezone'] || req.headers['X-Timezone'] || 'unknown';
   
   const timeWindow = includeTimeWindow 
     ? Math.floor(Date.now() / (15 * 60 * 1000)) // 15-minute window
@@ -87,7 +99,6 @@ const generateDeviceFingerprint = (req, includeTimeWindow = true) => {
   
   return fingerprint;
 };
-
 /**
  * Generate a fingerprint for anonymous users (includes IP for global rate limiting)
  */
