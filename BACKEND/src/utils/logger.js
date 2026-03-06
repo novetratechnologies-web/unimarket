@@ -1,8 +1,6 @@
 import winston from 'winston';
-import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -39,16 +37,6 @@ const colors = {
 winston.addColors(colors);
 
 // ============================================
-// LOG DIRECTORY SETUP
-// ============================================
-
-// Create logs directory if it doesn't exist
-const logDir = path.join(process.cwd(), process.env.LOG_FILE_PATH || 'logs');
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir, { recursive: true });
-}
-
-// ============================================
 // CUSTOM LOG FORMATS
 // ============================================
 
@@ -79,16 +67,6 @@ const consoleFormat = winston.format.printf(({ level, message, timestamp, stack,
 });
 
 /**
- * Custom JSON format for files
- */
-const jsonFormat = winston.format.combine(
-  timestampFormat,
-  winston.format.errors({ stack: true }),
-  winston.format.metadata(),
-  winston.format.json()
-);
-
-/**
  * Custom console format with colors
  */
 const consoleJsonFormat = winston.format.combine(
@@ -103,7 +81,7 @@ const consoleJsonFormat = winston.format.combine(
 // ============================================
 
 /**
- * Console transport for development
+ * Console transport - ALWAYS ENABLED
  */
 const consoleTransport = new winston.transports.Console({
   level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
@@ -112,78 +90,12 @@ const consoleTransport = new winston.transports.Console({
   handleRejections: true
 });
 
-/**
- * Daily rotate file transport for all logs
- */
-const fileRotateTransport = new DailyRotateFile({
-  filename: path.join(logDir, 'application-%DATE%.log'),
-  datePattern: 'YYYY-MM-DD',
-  zippedArchive: true,
-  maxSize: process.env.LOG_MAX_SIZE || '20m',
-  maxFiles: process.env.LOG_MAX_FILES || '30d',
-  level: process.env.LOG_LEVEL || 'info',
-  format: jsonFormat,
-  handleExceptions: true,
-  handleRejections: true
-});
-
-/**
- * Error log transport - separate file for errors
- */
-const errorFileTransport = new DailyRotateFile({
-  filename: path.join(logDir, 'error-%DATE%.log'),
-  datePattern: 'YYYY-MM-DD',
-  zippedArchive: true,
-  maxSize: process.env.LOG_MAX_SIZE || '20m',
-  maxFiles: process.env.LOG_MAX_FILES || '30d',
-  level: 'error',
-  format: jsonFormat,
-  handleExceptions: true,
-  handleRejections: true
-});
-
-/**
- * HTTP request log transport
- */
-const httpFileTransport = new DailyRotateFile({
-  filename: path.join(logDir, 'http-%DATE%.log'),
-  datePattern: 'YYYY-MM-DD',
-  zippedArchive: true,
-  maxSize: process.env.LOG_MAX_SIZE || '20m',
-  maxFiles: process.env.LOG_MAX_FILES || '30d',
-  level: 'http',
-  format: jsonFormat
-});
-
-/**
- * Audit log transport - separate file for audit events
- */
-const auditFileTransport = new DailyRotateFile({
-  filename: path.join(logDir, 'audit-%DATE%.log'),
-  datePattern: 'YYYY-MM-DD',
-  zippedArchive: true,
-  maxSize: process.env.LOG_MAX_SIZE || '20m',
-  maxFiles: process.env.LOG_MAX_FILES || '90d', // Keep audit logs longer
-  level: 'info',
-  format: jsonFormat
-});
+// Console only - NO FILE TRANSPORTS
+const transports = [consoleTransport];
 
 // ============================================
 // CREATE LOGGER INSTANCE
 // ============================================
-
-const transports = [
-  consoleTransport,
-  fileRotateTransport,
-  errorFileTransport,
-  httpFileTransport,
-  auditFileTransport
-];
-
-// Add additional transports based on environment
-if (process.env.NODE_ENV === 'production') {
-  // Add production-specific transports here (e.g., Sentry, Logstash)
-}
 
 export const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
@@ -722,37 +634,15 @@ export const securityLogger = {
 };
 
 // ============================================
-// LOG CLEANUP & MAINTENANCE
+// DUMMY CLEANUP FUNCTION (no-op)
 // ============================================
 
 /**
- * Clean up old log files
+ * Clean up old log files - dummy function that does nothing
  */
-export const cleanupOldLogs = async (daysToKeep = 30) => {
-  try {
-    const files = fs.readdirSync(logDir);
-    const now = Date.now();
-    let deletedCount = 0;
-    
-    files.forEach(file => {
-      if (file.endsWith('.log') || file.endsWith('.gz')) {
-        const filePath = path.join(logDir, file);
-        const stats = fs.statSync(filePath);
-        const fileAge = (now - stats.mtimeMs) / (1000 * 60 * 60 * 24);
-        
-        if (fileAge > daysToKeep) {
-          fs.unlinkSync(filePath);
-          deletedCount++;
-        }
-      }
-    });
-    
-    logger.info(`🧹 Cleaned up ${deletedCount} old log files`);
-    return deletedCount;
-  } catch (error) {
-    logger.error('Failed to cleanup old logs:', error);
-    throw error;
-  }
+export const cleanupOldLogs = async (daysToKeep = 7) => {
+  logger.info('🧹 File logging is disabled - no cleanup needed');
+  return 0;
 };
 
 // ============================================
@@ -794,6 +684,10 @@ export default {
   systemLogger,
   securityLogger,
   
-  // Maintenance
-  cleanupOldLogs
+  // Maintenance - dummy function
+  cleanupOldLogs,
+  
+  
+  // Always disabled
+  isFileLoggingEnabled: false
 };

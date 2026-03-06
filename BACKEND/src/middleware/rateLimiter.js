@@ -58,10 +58,6 @@ if (isProduction && process.env.REDIS_URL) {
  * Generate a device fingerprint that doesn't include IP
  * This ensures different devices on same network have different fingerprints
  */
-/**
- * Generate a device fingerprint that doesn't include IP
- * This ensures different devices on same network have different fingerprints
- */
 const generateDeviceFingerprint = (req, includeTimeWindow = true) => {
   const userAgent = req.headers['user-agent'] || 'unknown';
   const acceptLang = req.headers['accept-language'] || 'unknown';
@@ -76,7 +72,7 @@ const generateDeviceFingerprint = (req, includeTimeWindow = true) => {
   // Client-side identifiers - with fallbacks
   const clientId = req.headers['x-client-id'] || 'unknown';
   
-  // 🔥 FIX: Handle missing screen-size header gracefully
+  // Handle missing screen-size header gracefully
   let screenSize = 'unknown';
   if (req.headers['x-screen-size']) {
     screenSize = req.headers['x-screen-size'];
@@ -99,6 +95,7 @@ const generateDeviceFingerprint = (req, includeTimeWindow = true) => {
   
   return fingerprint;
 };
+
 /**
  * Generate a fingerprint for anonymous users (includes IP for global rate limiting)
  */
@@ -255,19 +252,20 @@ export const rateLimiter = (options = {}) => {
 };
 
 // ============================================
-// AUTHENTICATION LIMITERS (Device + Email based)
+// AUTHENTICATION LIMITERS - ALL WITH 10 SECOND RESET
 // ============================================
 
 /**
- * Auth rate limiter - Device + Email based (no IP sharing)
+ * Auth rate limiter - Device + Email based with 10 SECOND reset
  */
 export const authLimiter = rateLimiter({
-  windowMs: isDevelopment ? 2 * 60 * 1000 : 30 * 60 * 1000, // 2 min dev, 30 min prod
-  max: isDevelopment ? 100 : 15, // 15 attempts per window
+  windowMs: isDevelopment ? 5 * 1000 : 10 * 1000, // 10 seconds!
+  max: isDevelopment ? 100 : 5, // 5 attempts per 10 seconds
   message: {
     success: false,
-    message: 'Too many authentication attempts. Please try again later.',
-    code: 'AUTH_RATE_LIMIT_EXCEEDED'
+    message: 'Too many authentication attempts. Please wait 10 seconds.',
+    code: 'AUTH_RATE_LIMIT_EXCEEDED',
+    retryAfter: 10
   },
   prefix: 'auth',
   skipSuccessfulRequests: true,
@@ -279,15 +277,16 @@ export const authLimiter = rateLimiter({
 });
 
 /**
- * Login rate limiter - Device + Email based
+ * Login rate limiter - Device + Email based with 10 SECOND reset
  */
 export const loginLimiter = rateLimiter({
-  windowMs: isDevelopment ? 2 * 60 * 1000 : 30 * 60 * 1000, // 2 min dev, 30 min prod
-  max: isDevelopment ? 100 : 10, // 10 attempts per window
+  windowMs: isDevelopment ? 5 * 1000 : 10 * 1000, // 10 seconds!
+  max: isDevelopment ? 100 : 5, // 5 attempts per 10 seconds
   message: {
     success: false,
-    message: 'Too many login attempts. Please try again later.',
-    code: 'LOGIN_RATE_LIMIT_EXCEEDED'
+    message: 'Too many login attempts. Please wait 10 seconds.',
+    code: 'LOGIN_RATE_LIMIT_EXCEEDED',
+    retryAfter: 10
   },
   prefix: 'login',
   skipSuccessfulRequests: true,
@@ -299,15 +298,35 @@ export const loginLimiter = rateLimiter({
 });
 
 /**
- * Registration rate limiter - Email + Device based
+ * Username check limiter - 10 SECOND reset
  */
-export const registerLimiter = rateLimiter({
-  windowMs: isDevelopment ? 5 * 60 * 1000 : 24 * 60 * 60 * 1000, // 5 min dev, 24 hours prod
-  max: isDevelopment ? 20 : 3, // 3 registrations per day per device
+export const usernameCheckLimiter = rateLimiter({
+  windowMs: 10 * 1000, // 10 seconds!
+  max: 20, // 20 checks per 10 seconds
   message: {
     success: false,
-    message: 'Too many registration attempts. Please try again later.',
-    code: 'REGISTER_RATE_LIMIT_EXCEEDED'
+    message: 'Too many username checks. Please wait 10 seconds.',
+    code: 'USERNAME_CHECK_LIMIT_EXCEEDED',
+    retryAfter: 10
+  },
+  prefix: 'username',
+  keyGenerator: (req) => {
+    const deviceFingerprint = generateDeviceFingerprint(req, true);
+    return `username:${deviceFingerprint}`;
+  }
+});
+
+/**
+ * Registration rate limiter - Email + Device based with 10 SECOND reset
+ */
+export const registerLimiter = rateLimiter({
+  windowMs: isDevelopment ? 5 * 1000 : 10 * 1000, // 10 seconds!
+  max: isDevelopment ? 20 : 3, // 3 registrations per 10 seconds
+  message: {
+    success: false,
+    message: 'Too many registration attempts. Please wait 10 seconds.',
+    code: 'REGISTER_RATE_LIMIT_EXCEEDED',
+    retryAfter: 10
   },
   prefix: 'register',
   keyGenerator: (req) => {
@@ -318,15 +337,16 @@ export const registerLimiter = rateLimiter({
 });
 
 /**
- * Strict auth limiter (for sensitive operations)
+ * Strict auth limiter - 10 SECOND reset
  */
 export const strictAuthLimiter = rateLimiter({
-  windowMs: isDevelopment ? 5 * 60 * 1000 : 2 * 60 * 60 * 1000, // 5 min dev, 2 hours prod
-  max: isDevelopment ? 20 : 5, // 5 attempts per 2 hours
+  windowMs: isDevelopment ? 5 * 1000 : 10 * 1000, // 10 seconds!
+  max: isDevelopment ? 20 : 3, // 3 attempts per 10 seconds
   message: {
     success: false,
-    message: 'Too many sensitive authentication attempts. Please try again later.',
-    code: 'STRICT_AUTH_RATE_LIMIT_EXCEEDED'
+    message: 'Too many sensitive attempts. Please wait 10 seconds.',
+    code: 'STRICT_AUTH_RATE_LIMIT_EXCEEDED',
+    retryAfter: 10
   },
   prefix: 'strict-auth',
   skipSuccessfulRequests: true,
@@ -338,15 +358,16 @@ export const strictAuthLimiter = rateLimiter({
 });
 
 /**
- * Password reset rate limiter - Email + Device based
+ * Password reset rate limiter - 10 SECOND reset
  */
 export const passwordResetLimiter = rateLimiter({
-  windowMs: isDevelopment ? 5 * 60 * 1000 : 2 * 60 * 60 * 1000, // 5 min dev, 2 hours prod
-  max: isDevelopment ? 20 : 5, // 5 attempts per 2 hours
+  windowMs: isDevelopment ? 5 * 1000 : 10 * 1000, // 10 seconds!
+  max: isDevelopment ? 20 : 3, // 3 attempts per 10 seconds
   message: {
     success: false,
-    message: 'Too many password reset attempts. Please try again later.',
-    code: 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED'
+    message: 'Too many password reset attempts. Please wait 10 seconds.',
+    code: 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED',
+    retryAfter: 10
   },
   prefix: 'password-reset',
   skipSuccessfulRequests: true,
@@ -358,15 +379,16 @@ export const passwordResetLimiter = rateLimiter({
 });
 
 /**
- * Email verification rate limiter - Email + Device based
+ * Email verification rate limiter - 10 SECOND reset
  */
 export const emailVerificationLimiter = rateLimiter({
-  windowMs: isDevelopment ? 2 * 60 * 1000 : 60 * 60 * 1000, // 2 min dev, 1 hour prod
-  max: isDevelopment ? 30 : 5, // 5 attempts per hour
+  windowMs: isDevelopment ? 5 * 1000 : 10 * 1000, // 10 seconds!
+  max: isDevelopment ? 30 : 5, // 5 attempts per 10 seconds
   message: {
     success: false,
-    message: 'Too many verification attempts. Please try again later.',
-    code: 'EMAIL_VERIFICATION_RATE_LIMIT_EXCEEDED'
+    message: 'Too many verification attempts. Please wait 10 seconds.',
+    code: 'EMAIL_VERIFICATION_RATE_LIMIT_EXCEEDED',
+    retryAfter: 10
   },
   prefix: 'email-verification',
   skipSuccessfulRequests: true,
@@ -374,6 +396,25 @@ export const emailVerificationLimiter = rateLimiter({
     const email = req.body?.email ? req.body.email.toLowerCase().replace(/[^a-z0-9@.]/g, '') : 'anonymous';
     const deviceFingerprint = generateDeviceFingerprint(req, false);
     return `email-verification:${email}:${deviceFingerprint}`;
+  }
+});
+
+/**
+ * CSRF token limiter - 10 SECOND reset
+ */
+export const csrfTokenLimiter = rateLimiter({
+  windowMs: 10 * 1000, // 10 seconds!
+  max: 30, // 30 requests per 10 seconds
+  message: {
+    success: false,
+    message: 'Too many CSRF token requests. Please wait 10 seconds.',
+    code: 'CSRF_RATE_LIMIT_EXCEEDED',
+    retryAfter: 10
+  },
+  prefix: 'csrf',
+  keyGenerator: (req) => {
+    const fingerprint = generateIpBasedFingerprint(req, true);
+    return `csrf:${fingerprint}`;
   }
 });
 
@@ -385,7 +426,7 @@ export const emailVerificationLimiter = rateLimiter({
  * IP-based network limiter - prevents DoS attacks
  */
 export const networkLimiter = rateLimiter({
-  windowMs: 5 * 60 * 1000, // 5 minutes
+  windowMs: 5 * 60 * 1000, // 5 minutes (keeping this longer for DDoS protection)
   max: 200, // 200 requests per 5 minutes per IP
   message: {
     success: false,
