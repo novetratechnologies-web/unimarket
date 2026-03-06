@@ -163,7 +163,7 @@ const HeaderMiddle = () => {
   }
 
   return (
-    <div className="sticky top-0 z-[100] bg-white shadow-sm border-b border-gray-100">
+    <div className="sticky top-0 z-[10000] bg-white shadow-sm border-b border-gray-100">
       {/* Main Header */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
