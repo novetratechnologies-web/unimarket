@@ -158,6 +158,8 @@ if (!isProduction) {
 // ============================================
 // 📤 Request Interceptor
 // ============================================
+import { addDeviceHeaders } from '../utils/headers';
+
 apiClient.interceptors.request.use(
   (config) => {
     // Add request timestamp for debugging
@@ -188,6 +190,9 @@ apiClient.interceptors.request.use(
     // Add request ID for tracing
     config.headers['X-Request-ID'] = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+    // 🔥 Add device headers conditionally
+    config = addDeviceHeaders(config);
+
     return config;
   },
   (error) => {
@@ -195,7 +200,6 @@ apiClient.interceptors.request.use(
     return Promise.reject(error);
   }
 );
-
 // ============================================
 // 📥 Response Interceptor
 // ============================================
