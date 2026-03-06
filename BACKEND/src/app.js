@@ -275,7 +275,8 @@ app.use(cors({
     'X-Client-Platform',
     'X-Screen-Size', 
     'x-screen-size',       
-    'x-timezone'   
+    'x-timezone',
+    'x-client-id'  
   ],
   exposedHeaders: [
     'X-Request-ID', 
