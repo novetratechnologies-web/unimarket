@@ -1,3 +1,4 @@
+// models/User.js
 import mongoose from "mongoose";
 import validator from "validator";
 import bcrypt from "bcryptjs";
@@ -48,7 +49,6 @@ const userSchema = new mongoose.Schema(
       default: null
     },
     
-    // NEW FIELDS
     alternativePhone: {
       type: String,
       trim: true,
@@ -71,6 +71,13 @@ const userSchema = new mongoose.Schema(
       minlength: 3,
       maxlength: 30,
       match: [/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"]
+    },
+    
+    displayName: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+      default: null
     },
     
     dateOfBirth: {
@@ -109,6 +116,88 @@ const userSchema = new mongoose.Schema(
       maxlength: 100,
       default: null
     },
+
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null
+    },
+
+    // ==================== LOCATION ====================
+    location: {
+      city: {
+        type: String,
+        trim: true,
+        maxlength: 100,
+        default: null
+      },
+      country: {
+        type: String,
+        trim: true,
+        maxlength: 100,
+        default: null
+      }
+    },
+
+    // ==================== SOCIAL LINKS ====================
+    socialLinks: {
+      github: {
+        type: String,
+        trim: true,
+        validate: {
+          validator: function(v) {
+            if (!v) return true;
+            return validator.isURL(v);
+          },
+          message: "Invalid GitHub URL"
+        },
+        default: null
+      },
+      twitter: {
+        type: String,
+        trim: true,
+        validate: {
+          validator: function(v) {
+            if (!v) return true;
+            return validator.isURL(v);
+          },
+          message: "Invalid Twitter URL"
+        },
+        default: null
+      },
+      linkedin: {
+        type: String,
+        trim: true,
+        validate: {
+          validator: function(v) {
+            if (!v) return true;
+            return validator.isURL(v);
+          },
+          message: "Invalid LinkedIn URL"
+        },
+        default: null
+      },
+      instagram: {
+        type: String,
+        trim: true,
+        validate: {
+          validator: function(v) {
+            if (!v) return true;
+            return validator.isURL(v);
+          },
+          message: "Invalid Instagram URL"
+        },
+        default: null
+      }
+    },
+
+    // ==================== INTERESTS ====================
+    interests: [{
+      type: String,
+      trim: true,
+      maxlength: 50
+    }],
 
     // ==================== AUTHENTICATION ====================
     password: {
@@ -228,7 +317,8 @@ const userSchema = new mongoose.Schema(
         default: Date.now
       },
       expiresAt: Date,
-      deviceInfo: String
+      deviceInfo: String,
+      ipAddress: String
     }],
     csrfTokens: [{
       token: String,
@@ -243,10 +333,6 @@ const userSchema = new mongoose.Schema(
     avatar: {
       type: String,
       default: ""
-    },
-    displayName: {
-      type: String,
-      trim: true
     },
     emailVerifiedAt: {
       type: Date,
@@ -296,6 +382,38 @@ const userSchema = new mongoose.Schema(
         type: String,
         enum: ["light", "dark", "auto"],
         default: "auto"
+      },
+      // Privacy settings
+      privacy: {
+        profileVisibility: {
+          type: String,
+          enum: ['public', 'students', 'private'],
+          default: 'public'
+        },
+        showEmail: {
+          type: Boolean,
+          default: false
+        },
+        showPhone: {
+          type: Boolean,
+          default: false
+        },
+        showUniversity: {
+          type: Boolean,
+          default: true
+        },
+        showWishlist: {
+          type: Boolean,
+          default: false
+        },
+        showReviews: {
+          type: Boolean,
+          default: true
+        },
+        showListings: {
+          type: Boolean,
+          default: true
+        }
       }
     },
 
@@ -347,7 +465,6 @@ userSchema.virtual("accountStatus").get(function() {
   return "active";
 });
 
-// Virtual for age calculation
 userSchema.virtual("age").get(function() {
   if (!this.dateOfBirth) return null;
   const today = new Date();
@@ -359,6 +476,15 @@ userSchema.virtual("age").get(function() {
     age--;
   }
   return age;
+});
+
+userSchema.virtual("locationString").get(function() {
+  if (this.location?.city && this.location?.country) {
+    return `${this.location.city}, ${this.location.country}`;
+  }
+  if (this.location?.city) return this.location.city;
+  if (this.location?.country) return this.location.country;
+  return null;
 });
 
 // ==================== MIDDLEWARE ====================
@@ -374,16 +500,26 @@ userSchema.pre("findOneAndUpdate", function(next) {
   next();
 });
 
+// // Hash password before saving
+// userSchema.pre("save", async function(next) {
+//   if (!this.isModified("password") || !this.password) return next();
+  
+//   try {
+//     const salt = await bcrypt.genSalt(12);
+//     this.password = await bcrypt.hash(this.password, salt);
+//     next();
+//   } catch (error) {
+//     next(error);
+//   }
+// });
+
 // ==================== INSTANCE METHODS ====================
 
 /** 🔐 Compare passwords */
 userSchema.methods.matchPassword = async function(enteredPassword) {
-  // Google OAuth users don't have passwords
-  if (this.authMethod === "google" || this.googleId) {
+  if (this.authMethod === "google" || this.googleId || !this.password) {
     return false;
   }
-  
-  if (!this.password) return false;
   
   try {
     return await bcrypt.compare(enteredPassword, this.password);
@@ -413,7 +549,7 @@ userSchema.methods.incrementLoginAttempts = async function() {
   this.lastLoginAttempt = new Date();
   
   if (this.loginAttempts >= 5) {
-    this.loginLockoutUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    this.loginLockoutUntil = new Date(Date.now() + 15 * 60 * 1000);
   }
   
   await this.save();
@@ -427,19 +563,19 @@ userSchema.methods.resetLoginAttempts = async function() {
 };
 
 /** 🔐 Add valid refresh token */
-userSchema.methods.addRefreshToken = async function(token, deviceInfo = "") {
+userSchema.methods.addRefreshToken = async function(token, deviceInfo = "", ipAddress = "") {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
   
-  // Keep only last 5 refresh tokens
   if (this.validRefreshTokens.length >= 5) {
-    this.validRefreshTokens.shift(); // Remove oldest
+    this.validRefreshTokens.shift();
   }
   
   this.validRefreshTokens.push({
     token,
     createdAt: new Date(),
     expiresAt,
-    deviceInfo
+    deviceInfo,
+    ipAddress
   });
   
   await this.save();
@@ -453,9 +589,8 @@ userSchema.methods.removeRefreshToken = async function(token) {
 
 /** 🔐 Add CSRF token */
 userSchema.methods.addCSRFToken = async function(token) {
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   
-  // Keep only last 10 CSRF tokens
   if (this.csrfTokens.length >= 10) {
     this.csrfTokens.shift();
   }
@@ -477,7 +612,6 @@ userSchema.methods.isValidCSRFToken = function(token) {
   );
   
   if (validToken) {
-    // Remove expired tokens while we're at it
     this.csrfTokens = this.csrfTokens.filter(t => t.expiresAt > now);
   }
   
@@ -486,7 +620,6 @@ userSchema.methods.isValidCSRFToken = function(token) {
 
 /** 🔐 Add login history */
 userSchema.methods.addLoginHistory = async function(ipAddress, userAgent, successful, location = "") {
-  // Keep only last 20 login attempts
   if (this.loginHistory.length >= 20) {
     this.loginHistory.shift();
   }
@@ -504,23 +637,42 @@ userSchema.methods.addLoginHistory = async function(ipAddress, userAgent, succes
 
 /** 🔐 Update profile with new fields */
 userSchema.methods.updateProfile = async function(profileData) {
-  const { firstName, lastName, phone, alternativePhone, username, dateOfBirth, gender, university, avatar } = profileData;
+  const { 
+    firstName, lastName, displayName, phone, alternativePhone, 
+    username, dateOfBirth, gender, university, bio, avatar,
+    location, socialLinks, interests
+  } = profileData;
   
   if (firstName) this.firstName = firstName;
   if (lastName) this.lastName = lastName;
+  if (displayName !== undefined) this.displayName = displayName;
   if (phone) this.phone = phone;
   if (alternativePhone !== undefined) this.alternativePhone = alternativePhone;
   if (username) this.username = username;
   if (dateOfBirth) this.dateOfBirth = dateOfBirth;
   if (gender) this.gender = gender;
   if (university) this.university = university;
+  if (bio !== undefined) this.bio = bio;
   if (avatar) this.avatar = avatar;
   
-  // Check if profile is now complete
+  if (location) {
+    if (!this.location) this.location = {};
+    if (location.city !== undefined) this.location.city = location.city;
+    if (location.country !== undefined) this.location.country = location.country;
+  }
+  
+  if (socialLinks) {
+    if (!this.socialLinks) this.socialLinks = {};
+    Object.assign(this.socialLinks, socialLinks);
+  }
+  
+  if (interests) this.interests = interests;
+  
   if (this.firstName && this.lastName && this.phone && this.university) {
     this.profileCompleted = true;
   }
   
+  this.lastActive = new Date();
   await this.save();
   return this;
 };
@@ -542,14 +694,12 @@ userSchema.statics.findOrCreateGoogleUser = async function(profile) {
     
     const email = profile.emails[0].value.toLowerCase();
     
-    // Try to find user
     let user = await this.findOne({ 
       email: email,
       isActive: true 
     }).session(session);
 
     if (user) {
-      // Update existing user with Google info if needed
       if (!user.googleId) {
         user.googleId = profile.id;
         user.authMethod = "google";
@@ -567,7 +717,6 @@ userSchema.statics.findOrCreateGoogleUser = async function(profile) {
       return user;
     }
 
-    // Create new Google user
     const names = profile.displayName?.split(' ') || [];
     const firstName = profile.name?.givenName || names[0] || 'Google';
     const lastName = profile.name?.familyName || names.slice(1).join(' ') || 'User';
@@ -586,8 +735,8 @@ userSchema.statics.findOrCreateGoogleUser = async function(profile) {
       accountCreated: new Date(),
       lastActive: new Date(),
       lastLogin: new Date(),
-      profileCompleted: false, // Google users need to complete profile
-      gender: 'prefer not to say' // Default value
+      profileCompleted: false,
+      gender: 'prefer not to say'
     });
 
     await user.save({ session });
@@ -664,14 +813,14 @@ userSchema.index({ lastActive: -1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ "validRefreshTokens.expiresAt": 1 });
 userSchema.index({ "csrfTokens.expiresAt": 1 });
-
-// New indexes
 userSchema.index({ username: 1 }, { sparse: true, unique: true });
 userSchema.index({ dateOfBirth: 1 }, { sparse: true });
 userSchema.index({ gender: 1 }, { sparse: true });
 userSchema.index({ alternativePhone: 1 }, { sparse: true });
+userSchema.index({ "location.country": 1 }, { sparse: true });
+userSchema.index({ interests: 1 }, { sparse: true });
 
-// Compound indexes for common queries
+// Compound indexes
 userSchema.index({ firstName: 1, lastName: 1 });
 userSchema.index({ university: 1, isVerified: 1 });
 
@@ -691,6 +840,14 @@ userSchema.query.byAuthMethod = function(method) {
 
 userSchema.query.byGender = function(gender) {
   return this.where({ gender });
+};
+
+userSchema.query.byInterest = function(interest) {
+  return this.where({ interests: interest });
+};
+
+userSchema.query.byCountry = function(country) {
+  return this.where({ "location.country": country });
 };
 
 userSchema.query.withBirthdayThisMonth = function() {
