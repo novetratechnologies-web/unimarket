@@ -34,7 +34,10 @@ const HeaderMiddle = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, loading } = useAuth();
+
+  // ✅ Helper to check auth state safely
+  const isLoggedIn = isAuthenticated && isAuthenticated();
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -52,8 +55,8 @@ const HeaderMiddle = () => {
 
   const handleLogout = async () => {
     try {
-      await logout();
       setIsAccountMenuOpen(false);
+      await logout();
       navigate("/login");
     } catch (error) {
       console.error("Logout error:", error);
@@ -61,7 +64,7 @@ const HeaderMiddle = () => {
   };
 
   const handleProfileClick = () => {
-    if (isAuthenticated()) {
+    if (isLoggedIn) {
       setIsAccountMenuOpen(!isAccountMenuOpen);
     } else {
       navigate("/login");
@@ -82,6 +85,12 @@ const HeaderMiddle = () => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+    setIsAccountMenuOpen(false);
+  }, [location.pathname]);
 
   const quickSearchTerms = ["Laptops", "Textbooks", "Furniture", "Electronics", "Dorm Essentials"];
 
@@ -124,6 +133,30 @@ const HeaderMiddle = () => {
     { label: "Trending", icon: <TrendingUp className="w-5 h-5" />, path: "/trending" },
     { label: "Categories", icon: <Package className="w-5 h-5" />, path: "/categories" },
   ];
+
+  // Show loading skeleton while auth is initializing
+  if (loading) {
+    return (
+      <div className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16 animate-pulse">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-gray-200 rounded-xl"></div>
+              <div className="hidden sm:block">
+                <div className="w-24 h-5 bg-gray-200 rounded mb-1"></div>
+                <div className="w-32 h-3 bg-gray-200 rounded"></div>
+              </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+              <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+              <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-100">
@@ -210,7 +243,7 @@ const HeaderMiddle = () => {
           {/* User Actions */}
           <div className="flex items-center space-x-4 lg:space-x-6">
             {/* Wishlist */}
-            {isAuthenticated() && (
+            {isLoggedIn && (
               <Link 
                 to="/wishlist" 
                 className="hidden lg:flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-50 group relative transition-colors"
@@ -225,7 +258,7 @@ const HeaderMiddle = () => {
             )}
 
             {/* Cart */}
-            {isAuthenticated() && (
+            {isLoggedIn && (
               <Link 
                 to="/cart" 
                 className="hidden lg:flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-50 group relative transition-colors"
@@ -241,7 +274,7 @@ const HeaderMiddle = () => {
 
             {/* User Profile / Account Dropdown */}
             <div className="relative" ref={accountMenuRef}>
-              {isAuthenticated() ? (
+              {isLoggedIn ? (
                 <>
                   <button 
                     onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
@@ -252,7 +285,7 @@ const HeaderMiddle = () => {
                         {user?.avatar ? (
                           <img 
                             src={user.avatar} 
-                            alt={user.firstName} 
+                            alt={user?.firstName || 'User'} 
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -282,7 +315,7 @@ const HeaderMiddle = () => {
                             {user?.avatar ? (
                               <img 
                                 src={user.avatar} 
-                                alt={user.firstName} 
+                                alt={user?.firstName || 'User'} 
                                 className="w-full h-full object-cover"
                               />
                             ) : (
@@ -296,7 +329,7 @@ const HeaderMiddle = () => {
                             <p className="text-sm text-gray-500 truncate">{user?.email}</p>
                             <div className="flex items-center gap-1 mt-1">
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800">
-                                {user?.university}
+                                {user?.university || 'Student'}
                               </span>
                             </div>
                           </div>
@@ -383,7 +416,7 @@ const HeaderMiddle = () => {
         </div>
 
         {/* Mobile Action Icons */}
-        {isAuthenticated() && (
+        {isLoggedIn && (
           <div className="md:hidden flex items-center justify-around py-3 border-t border-gray-100">
             <Link 
               to="/wishlist" 
@@ -415,7 +448,7 @@ const HeaderMiddle = () => {
                 {user?.avatar ? (
                   <img 
                     src={user.avatar} 
-                    alt={user.firstName} 
+                    alt={user?.firstName || 'User'} 
                     className="w-full h-full rounded-full object-cover"
                   />
                 ) : (
@@ -429,7 +462,7 @@ const HeaderMiddle = () => {
       </div>
 
       {/* Mobile Account Dropdown - MODERNIZED */}
-      {isAuthenticated() && isAccountMenuOpen && (
+      {isLoggedIn && isAccountMenuOpen && (
         <div className="md:hidden fixed inset-0 z-50">
           {/* Modern Backdrop with blur */}
           <div 
@@ -446,7 +479,7 @@ const HeaderMiddle = () => {
                   {user?.avatar ? (
                     <img 
                       src={user.avatar} 
-                      alt={user.firstName} 
+                      alt={user?.firstName || 'User'} 
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -471,7 +504,7 @@ const HeaderMiddle = () => {
             {/* University Badge */}
             <div className="px-6 pb-4">
               <div className="inline-flex items-center px-3 py-1 rounded-full bg-gradient-to-r from-teal-50 to-cyan-50 border border-teal-100">
-                <span className="text-xs font-medium text-teal-700">{user?.university}</span>
+                <span className="text-xs font-medium text-teal-700">{user?.university || 'Student'}</span>
               </div>
             </div>
 
@@ -545,13 +578,13 @@ const HeaderMiddle = () => {
                   <X className="w-5 h-5 text-gray-600" />
                 </button>
               </div>
-              {isAuthenticated() && (
+              {isLoggedIn && (
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-100 to-cyan-100 flex items-center justify-center overflow-hidden">
                     {user?.avatar ? (
                       <img 
                         src={user.avatar} 
-                        alt={user.firstName} 
+                        alt={user?.firstName || 'User'} 
                         className="w-full h-full object-cover"
                       />
                     ) : (

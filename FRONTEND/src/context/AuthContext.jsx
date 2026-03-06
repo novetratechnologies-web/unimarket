@@ -1,5 +1,5 @@
-// src/contexts/AuthContext.jsx - FIXED VERSION
-import { createContext, useState, useContext, useEffect, useRef } from 'react';
+// src/contexts/AuthContext.jsx - PRODUCTION READY VERSION
+import { createContext, useState, useContext, useEffect, useRef, useCallback, useMemo } from 'react';
 import { api } from '../api';
 import config from '../config/env';
 import { AUTH_KEYS, API_ENDPOINTS, TOKEN_CONFIG } from '../constants/auth';
@@ -7,16 +7,23 @@ import { AUTH_KEYS, API_ENDPOINTS, TOKEN_CONFIG } from '../constants/auth';
 const AuthContext = createContext();
 
 export function useAuth() {
-  return useContext(AuthContext);
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
   const refreshPromise = useRef(null);
   const refreshTimeout = useRef(null);
   const csrfToken = useRef(null);
+  const authCheckInProgress = useRef(false);
 
   // Constants from config
   const apiBaseURL = config.api?.baseURL || 'http://localhost:5000/api';
@@ -30,64 +37,99 @@ export function AuthProvider({ children }) {
   });
 
   // Helper to get cookie value
-  const getCookie = (name) => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(';').shift();
-    return null;
-  };
-
-  // Secure token storage management
-  const tokenService = {
-    getStoredTokens: () => {
-      if (isProduction) {
-        // In production, get from secure cookies
-        const accessToken = getCookie('accessToken');
-        const refreshToken = getCookie('refreshToken');
-        if (accessToken && refreshToken) {
-          return { access: accessToken, refresh: refreshToken };
-        }
-      } else {
-        // In development, use sessionStorage
-        try {
-          const stored = sessionStorage.getItem(AUTH_KEYS.TOKENS);
-          return stored ? JSON.parse(stored) : null;
-        } catch {
-          return null;
-        }
-      }
+  const getCookie = useCallback((name) => {
+    try {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
       return null;
+    } catch (error) {
+      console.error('❌ Error reading cookie:', error);
+      return null;
+    }
+  }, []);
+
+  // ==================== TOKEN SERVICE ====================
+  const tokenService = useMemo(() => ({
+    getStoredTokens: () => {
+      try {
+        // ALWAYS check sessionStorage first (works in all environments)
+        const stored = sessionStorage.getItem(AUTH_KEYS.TOKENS);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          console.log('📦 Found tokens in sessionStorage:', {
+            hasAccess: !!parsed.access,
+            hasRefresh: !!parsed.refresh,
+            age: parsed.storedAt ? `${Math.round((Date.now() - parsed.storedAt)/1000)}s old` : 'unknown'
+          });
+          return parsed;
+        }
+
+        // In production, also check cookies as fallback (though HttpOnly cookies can't be read)
+        if (isProduction) {
+          const accessToken = getCookie('accessToken');
+          const refreshToken = getCookie('refreshToken');
+          if (accessToken && refreshToken) {
+            console.log('🍪 Found tokens in cookies');
+            // Store in sessionStorage for future use
+            const tokens = { access: accessToken, refresh: refreshToken, storedAt: Date.now() };
+            sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify(tokens));
+            return tokens;
+          }
+        }
+
+        return null;
+      } catch (error) {
+        console.error('❌ Error getting stored tokens:', error);
+        return null;
+      }
     },
 
     setTokens: (tokensData) => {
-      console.log('🔐 Setting tokens:', { 
-        hasAccess: !!tokensData?.access,
-        hasRefresh: !!tokensData?.refresh 
-      });
-      
-      if (isProduction) {
-        // Secure cookies with strict settings
-        const cookieOptions = 'Secure; HttpOnly; SameSite=Strict; Path=/';
-        document.cookie = `accessToken=${tokensData.access}; ${cookieOptions}; Max-Age=${TOKEN_CONFIG.ACCESS_EXPIRY}`;
-        document.cookie = `refreshToken=${tokensData.refresh}; ${cookieOptions}; Max-Age=${TOKEN_CONFIG.REFRESH_EXPIRY}`;
-      } else {
-        // Development: sessionStorage
-        sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify({
+      try {
+        console.log('🔐 Setting tokens:', { 
+          hasAccess: !!tokensData?.access,
+          hasRefresh: !!tokensData?.refresh 
+        });
+
+        if (!tokensData?.access || !tokensData?.refresh) {
+          console.error('❌ Invalid token data received');
+          return false;
+        }
+
+        // ALWAYS store in sessionStorage (works in all environments)
+        const tokensWithMeta = {
           ...tokensData,
           storedAt: Date.now()
-        }));
+        };
+        sessionStorage.setItem(AUTH_KEYS.TOKENS, JSON.stringify(tokensWithMeta));
+        console.log('✅ Tokens stored in sessionStorage');
+
+        // In production, also set non-HttpOnly cookies as fallback
+        if (isProduction) {
+          document.cookie = `accessToken=${tokensData.access}; Path=/; SameSite=Strict; Secure; Max-Age=${TOKEN_CONFIG.ACCESS_EXPIRY}`;
+          document.cookie = `refreshToken=${tokensData.refresh}; Path=/; SameSite=Strict; Secure; Max-Age=${TOKEN_CONFIG.REFRESH_EXPIRY}`;
+          console.log('🍪 Tokens also set in cookies (fallback)');
+        }
+
+        return true;
+      } catch (error) {
+        console.error('❌ Error setting tokens:', error);
+        return false;
       }
     },
 
     clearTokens: () => {
-      console.log('🗑️ Clearing tokens');
-      if (isProduction) {
-        // Clear secure cookies
+      try {
+        console.log('🗑️ Clearing tokens');
+        sessionStorage.removeItem(AUTH_KEYS.TOKENS);
+        
+        // Clear cookies
         document.cookie = 'accessToken=; Max-Age=0; Path=/';
         document.cookie = 'refreshToken=; Max-Age=0; Path=/';
-      } else {
-        // Clear development storage
-        sessionStorage.removeItem(AUTH_KEYS.TOKENS);
+        document.cookie = 'csrf_token=; Max-Age=0; Path=/';
+      } catch (error) {
+        console.error('❌ Error clearing tokens:', error);
       }
     },
 
@@ -99,172 +141,222 @@ export function AuthProvider({ children }) {
     },
 
     setCSRFToken: (token) => {
-      csrfToken.current = token;
-      // Also set as cookie for consistency
-      document.cookie = `csrf_token=${token}; Path=/; SameSite=Strict`;
-    }
-  };
+      try {
+        csrfToken.current = token;
+        document.cookie = `csrf_token=${token}; Path=/; SameSite=Strict${isProduction ? '; Secure' : ''}`;
+      } catch (error) {
+        console.error('❌ Error setting CSRF token:', error);
+      }
+    },
 
-  // User data storage management
-  const userService = {
+    refreshCSRFToken: async () => {
+      try {
+        const response = await api.get('/auth/csrf-token');
+        if (response?.data?.csrfToken) {
+          this.setCSRFToken(response.data.csrfToken);
+          return response.data.csrfToken;
+        }
+      } catch (error) {
+        console.error('❌ Error refreshing CSRF token:', error);
+      }
+      return null;
+    }
+  }), [isProduction, getCookie]);
+
+  // ==================== USER SERVICE ====================
+  const userService = useMemo(() => ({
     getStoredUser: () => {
       try {
         const stored = sessionStorage.getItem(AUTH_KEYS.USER_DATA);
-        return stored ? JSON.parse(stored) : null;
-      } catch {
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          console.log('👤 Found user in sessionStorage:', { email: parsed.email });
+          return parsed;
+        }
+        return null;
+      } catch (error) {
+        console.error('❌ Error getting stored user:', error);
         return null;
       }
     },
 
     setUser: (userData) => {
-      console.log('👤 Setting user data:', { 
-        email: userData?.email,
-        isVerified: userData?.isVerified 
-      });
-      
-      // Only store non-sensitive user data
-      const safeUserData = {
-        id: userData?.id || userData?._id,
-        email: userData?.email,
-        firstName: userData?.firstName,
-        lastName: userData?.lastName,
-        isVerified: userData?.isVerified || false,
-        university: userData?.university,
-        phone: userData?.phone,
-        avatar: userData?.avatar,
-        role: userData?.role || 'user'
-      };
-      
-      sessionStorage.setItem(AUTH_KEYS.USER_DATA, JSON.stringify(safeUserData));
-      setUser(safeUserData);
-      
-      // Check if user needs verification
-      if (!safeUserData.isVerified) {
-        console.log('⚠️ User is not verified');
-        setAuthError('EMAIL_NOT_VERIFIED');
+      try {
+        console.log('👤 Setting user data:', { 
+          email: userData?.email,
+          isVerified: userData?.isVerified 
+        });
+
+        if (!userData) {
+          this.clearUser();
+          return false;
+        }
+
+        // Only store non-sensitive user data
+        const safeUserData = {
+          id: userData?.id || userData?._id,
+          email: userData?.email,
+          firstName: userData?.firstName,
+          lastName: userData?.lastName,
+          isVerified: userData?.isVerified || false,
+          university: userData?.university,
+          phone: userData?.phone,
+          avatar: userData?.avatar,
+          role: userData?.role || 'user',
+          lastActive: userData?.lastActive || new Date().toISOString()
+        };
+
+        sessionStorage.setItem(AUTH_KEYS.USER_DATA, JSON.stringify(safeUserData));
+        setUser(safeUserData);
+        setIsAuthenticated(true);
+
+        if (!safeUserData.isVerified) {
+          console.log('⚠️ User is not verified');
+          setAuthError('EMAIL_NOT_VERIFIED');
+        } else {
+          setAuthError(null);
+        }
+
+        return true;
+      } catch (error) {
+        console.error('❌ Error setting user:', error);
+        return false;
       }
     },
 
     clearUser: () => {
-      console.log('🗑️ Clearing user data');
-      sessionStorage.removeItem(AUTH_KEYS.USER_DATA);
-      setUser(null);
-      setAuthError(null);
+      try {
+        console.log('🗑️ Clearing user data');
+        sessionStorage.removeItem(AUTH_KEYS.USER_DATA);
+        setUser(null);
+        setIsAuthenticated(false);
+        setAuthError(null);
+      } catch (error) {
+        console.error('❌ Error clearing user:', error);
+      }
     },
 
     updateUser: (updates) => {
-      const currentUser = userService.getStoredUser() || user;
-      if (currentUser) {
-        const updatedUser = { ...currentUser, ...updates };
-        userService.setUser(updatedUser);
+      try {
+        const currentUser = this.getStoredUser() || user;
+        if (currentUser) {
+          const updatedUser = { ...currentUser, ...updates };
+          this.setUser(updatedUser);
+        }
+      } catch (error) {
+        console.error('❌ Error updating user:', error);
       }
     }
-  };
+  }), [user]);
 
-  // Check if token is expired
-  const isTokenExpired = (token) => {
-    if (!token) {
-      console.log('❌ No token provided');
-      return true;
-    }
-    
+  // ==================== TOKEN UTILITIES ====================
+  const isTokenExpired = useCallback((token) => {
+    if (!token) return true;
+
     try {
+      // Check if it's a JWT (has 3 parts)
+      if (token.split('.').length !== 3) {
+        console.warn('⚠️ Invalid token format');
+        return true;
+      }
+
       const payload = JSON.parse(atob(token.split('.')[1]));
+      
+      if (!payload.exp) {
+        console.warn('⚠️ Token missing expiration');
+        return true;
+      }
+
       const expiryTime = payload.exp * 1000;
       const currentTime = Date.now();
-      const bufferTime = TOKEN_CONFIG.REFRESH_THRESHOLD;
-      
+      const bufferTime = TOKEN_CONFIG.REFRESH_THRESHOLD || 5 * 60 * 1000; // 5 minutes default
+
       const isExpired = currentTime + bufferTime >= expiryTime;
-      console.log('🔍 Token expiry check:', {
-        expiryTime: new Date(expiryTime).toISOString(),
-        currentTime: new Date(currentTime).toISOString(),
-        isExpired,
-        bufferTime
-      });
       
+      if (isExpired) {
+        console.log('🔍 Token expired or near expiry:', {
+          expiryTime: new Date(expiryTime).toISOString(),
+          timeRemaining: Math.round((expiryTime - currentTime) / 1000) + 's'
+        });
+      }
+
       return isExpired;
     } catch (error) {
       console.error('❌ Failed to parse token:', error);
       return true;
     }
-  };
+  }, []);
 
-  const scheduleTokenRefresh = (accessToken) => {
+  const scheduleTokenRefresh = useCallback((accessToken) => {
     if (refreshTimeout.current) {
       clearTimeout(refreshTimeout.current);
     }
-    
+
     try {
       const payload = JSON.parse(atob(accessToken.split('.')[1]));
       const expiryTime = payload.exp * 1000;
-      const refreshTime = expiryTime - TOKEN_CONFIG.REFRESH_THRESHOLD;
+      const refreshTime = expiryTime - (TOKEN_CONFIG.REFRESH_THRESHOLD || 5 * 60 * 1000);
       const timeUntilRefresh = Math.max(0, refreshTime - Date.now());
-      
-      console.log('⏰ Scheduling token refresh in:', {
-        timeUntilRefresh: `${Math.round(timeUntilRefresh / 1000)}s`,
-        expiryTime: new Date(expiryTime).toISOString()
-      });
-      
-      if (timeUntilRefresh > 0) {
+
+      if (timeUntilRefresh > 0 && timeUntilRefresh < 24 * 60 * 60 * 1000) {
+        console.log('⏰ Scheduling token refresh in:', {
+          timeUntilRefresh: `${Math.round(timeUntilRefresh / 1000)}s`,
+          expiryTime: new Date(expiryTime).toISOString()
+        });
+
         refreshTimeout.current = setTimeout(async () => {
           console.log('🔄 Time to refresh token...');
           const currentTokens = tokenService.getStoredTokens();
           if (currentTokens?.refresh) {
-            await refreshToken(currentTokens.refresh);
+            try {
+              await refreshToken(currentTokens.refresh);
+            } catch (error) {
+              console.error('❌ Scheduled token refresh failed:', error);
+            }
           }
         }, timeUntilRefresh);
-      } else {
-        console.log('⚠️ Token already needs refresh');
       }
     } catch (error) {
       console.warn('Failed to schedule token refresh:', error);
     }
-  };
+  }, [tokenService]);
 
-  const refreshToken = async (refreshTokenValue) => {
-    // Prevent multiple concurrent refresh attempts
+  const refreshToken = useCallback(async (refreshTokenValue) => {
     if (refreshPromise.current) {
-      console.log('🔄 Already refreshing, waiting for existing promise...');
+      console.log('🔄 Already refreshing, waiting...');
       return refreshPromise.current;
     }
-    
+
     refreshPromise.current = (async () => {
       try {
         const csrfTokenValue = tokenService.getCSRFToken();
         console.log('🔄 Attempting token refresh...');
-        
-        const response = await api.post(API_ENDPOINTS.REFRESH, { 
-          refresh: refreshTokenValue 
+
+        const response = await api.post(API_ENDPOINTS.REFRESH, {
+          refresh: refreshTokenValue
         }, {
-          headers: { 
+          headers: {
             'X-Refresh-Token': 'true',
             ...(csrfTokenValue && { 'X-CSRF-Token': csrfTokenValue })
           }
         });
-        
-        console.log('🔄 Token refresh response:', response);
-        
-        if (response.success) {
+
+        if (response?.success && response.data?.tokens) {
           const newTokens = response.data.tokens;
           
-          // Update tokens
           tokenService.setTokens(newTokens);
           api.setHeader('Authorization', `Bearer ${newTokens.access}`);
-          
-          // Schedule next refresh
           scheduleTokenRefresh(newTokens.access);
           
           console.log('✅ Token refresh successful');
           return newTokens;
         } else {
-          console.error('❌ Token refresh failed - success false:', response.message);
-          throw new Error(response.message || 'Token refresh failed');
+          throw new Error(response?.message || 'Token refresh failed');
         }
       } catch (error) {
         console.error('❌ Token refresh error:', error);
         
-        // If refresh fails, clear auth and redirect to login
-        if (error.message?.includes('401') || error.message?.includes('Invalid') || error.message?.includes('expired')) {
+        if (error.response?.status === 401 || error.message?.includes('Invalid')) {
           console.log('❌ Refresh token invalid, logging out...');
           clearAuth();
           window.location.href = `${appBaseURL}/login?session=expired`;
@@ -275,66 +367,71 @@ export function AuthProvider({ children }) {
         refreshPromise.current = null;
       }
     })();
-    
-    return refreshPromise.current;
-  };
 
-  const clearAuth = () => {
+    return refreshPromise.current;
+  }, [tokenService, scheduleTokenRefresh, appBaseURL]);
+
+  const clearAuth = useCallback(() => {
     console.log('🧹 Clearing all auth data');
     tokenService.clearTokens();
     userService.clearUser();
     api.removeHeader('Authorization');
-    
+    csrfToken.current = null;
+
     if (refreshTimeout.current) {
       clearTimeout(refreshTimeout.current);
       refreshTimeout.current = null;
     }
-  };
+  }, [tokenService, userService]);
 
-  // Initialize auth state
+  // ==================== AUTH INITIALIZATION ====================
   useEffect(() => {
+    if (authCheckInProgress.current) return;
+    authCheckInProgress.current = true;
+
     const checkAuth = async () => {
       try {
         console.log('🔍 Checking authentication state...');
-        
+
         const storedTokens = tokenService.getStoredTokens();
         const storedUser = userService.getStoredUser();
-        
+
         console.log('🔍 Stored data:', {
           hasTokens: !!storedTokens,
           hasUser: !!storedUser,
-          tokens: storedTokens,
-          user: storedUser
+          tokens: storedTokens ? '✅' : '❌',
+          user: storedUser ? '✅' : '❌'
         });
-        
-        if (storedTokens && storedUser) {
-          // Set user immediately for better UX
+
+        if (storedTokens?.access && storedTokens?.refresh && storedUser) {
+          // We have both tokens and user
           userService.setUser(storedUser);
-          
-          // Check if access token needs refresh
+          api.setHeader('Authorization', `Bearer ${storedTokens.access}`);
+
           if (isTokenExpired(storedTokens.access)) {
-            console.log('🔄 Access token expired or near expiry, refreshing...');
+            console.log('🔄 Access token expired, refreshing...');
             try {
               const newTokens = await refreshToken(storedTokens.refresh);
               if (newTokens) {
-                api.setHeader('Authorization', `Bearer ${newTokens.access}`);
                 console.log('✅ Auth initialized with refreshed tokens');
               } else {
-                console.log('❌ Token refresh returned null, clearing auth');
                 clearAuth();
               }
             } catch (error) {
-              console.error('❌ Token refresh failed during init:', error);
+              console.error('❌ Token refresh failed:', error);
               clearAuth();
             }
           } else {
-            // Token is still valid
             console.log('✅ Access token still valid');
-            api.setHeader('Authorization', `Bearer ${storedTokens.access}`);
             scheduleTokenRefresh(storedTokens.access);
           }
+        } else if (storedUser && !storedTokens) {
+          // We have user but no tokens - possible cookie auth
+          console.log('👤 User found without tokens - assuming cookie auth');
+          setUser(storedUser);
+          setIsAuthenticated(true);
         } else {
-          console.log('⚠️ No stored auth data found');
+          console.log('⚠️ No auth data found');
           clearAuth();
         }
       } catch (error) {
@@ -342,12 +439,12 @@ export function AuthProvider({ children }) {
         clearAuth();
       } finally {
         setLoading(false);
+        authCheckInProgress.current = false;
       }
     };
 
     checkAuth();
 
-    // Cleanup on unmount
     return () => {
       if (refreshTimeout.current) {
         clearTimeout(refreshTimeout.current);
@@ -355,270 +452,241 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const login = async (email, password) => {
+  // ==================== LOGIN ====================
+  const login = useCallback(async (email, password) => {
     try {
       console.log('🔐 Attempting login for:', email);
-      
-      const csrfTokenValue = tokenService.getCSRFToken();
-      console.log('📤 Sending login request...');
-      
-      const response = await api.post(API_ENDPOINTS.LOGIN, { 
-        email: email.toLowerCase().trim(), 
-        password 
+
+      let csrfTokenValue = tokenService.getCSRFToken();
+      if (!csrfTokenValue) {
+        csrfTokenValue = await tokenService.refreshCSRFToken();
+      }
+
+      const response = await api.post(API_ENDPOINTS.LOGIN, {
+        email: email.toLowerCase().trim(),
+        password
       }, {
         headers: csrfTokenValue ? { 'X-CSRF-Token': csrfTokenValue } : {}
       });
-      
-      console.log('📨 Login API response:', response);
-      
-      // Check if login was successful
-      if (!response.success) {
-        console.error('❌ Login failed - response success false:', response);
-        
-        // Check if email needs verification
-        if (response.code === 'EMAIL_NOT_VERIFIED' || response.message?.includes('verify')) {
-          console.log('⚠️ User needs email verification');
-          throw { 
+
+      console.log('📨 Login response:', response);
+
+      if (!response?.success) {
+        if (response?.code === 'EMAIL_NOT_VERIFIED') {
+          throw {
             message: response.message || 'Please verify your email first.',
             code: 'EMAIL_NOT_VERIFIED',
             email: email
           };
         }
-        
-        throw new Error(response.message || response.error || 'Login failed');
+        throw new Error(response?.message || 'Login failed');
       }
-      
-      // Extract data from response
+
       const { user: userData, tokens: tokensData, csrfToken: responseCsrfToken } = response.data;
-      
-      console.log('👤 User data received:', { 
-        email: userData?.email,
-        isVerified: userData?.isVerified,
-        hasTokens: !!tokensData
-      });
-      
+
       if (!userData || !tokensData) {
-        console.error('❌ Missing user or tokens in response');
         throw new Error('Invalid response from server');
       }
-      
-      // Check if user is verified
+
       if (!userData.isVerified) {
-        console.log('⚠️ User is not verified, storing email for verification');
-        
-        // Store the email for verification page
         sessionStorage.setItem('pending_verification_email', email);
-        
-        // Don't set auth tokens, user needs to verify first
-        throw { 
+        throw {
           message: 'Please verify your email before logging in.',
           code: 'EMAIL_NOT_VERIFIED',
           email: email,
           requiresVerification: true
         };
       }
-      
-      // Store data (only if verified)
+
+      // Store auth data
       tokenService.setTokens(tokensData);
       userService.setUser(userData);
-      
-      // Set authorization header
       api.setHeader('Authorization', `Bearer ${tokensData.access}`);
-      
-      // Schedule token refresh
-      scheduleTokenRefresh(tokensData.access);
-      
-      // Store CSRF token if provided
+
       if (responseCsrfToken) {
-        console.log('🔐 CSRF token received');
         tokenService.setCSRFToken(responseCsrfToken);
       }
+
+      scheduleTokenRefresh(tokensData.access);
+
+      // Force auth state update
+      setIsAuthenticated(true);
       
       console.log('✅ Login successful for:', userData.email);
-      
+
       return {
         success: true,
         user: userData,
-        tokens: tokensData,
-        requiresVerification: false
+        tokens: tokensData
       };
-      
     } catch (error) {
       console.error('❌ Login error:', error);
-      
-      // If it's a verification error, re-throw it so the component can handle it
+
       if (error.code === 'EMAIL_NOT_VERIFIED' || error.requiresVerification) {
         throw error;
       }
-      
-      // Provide user-friendly error messages for other errors
+
+      // User-friendly error messages
+      const errorMap = {
+        'Network Error': 'Cannot connect to server. Please check your internet connection.',
+        'timeout': 'Request timeout. Please try again.',
+        '401': 'Invalid email or password.',
+        '403': 'Access denied. Please refresh the page.',
+        '429': 'Too many attempts. Please wait a moment.'
+      };
+
       let errorMessage = 'Login failed. Please try again.';
       
-      if (error.message?.includes('Network Error')) {
-        errorMessage = 'Cannot connect to server. Please check your internet connection.';
-      } else if (error.message?.includes('401') || error.message?.includes('Invalid')) {
-        errorMessage = 'Invalid email or password.';
-      } else if (error.message?.includes('timeout')) {
-        errorMessage = 'Request timeout. Please try again.';
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.message) {
-        errorMessage = error.message;
+      for (const [key, msg] of Object.entries(errorMap)) {
+        if (error.message?.includes(key) || error.code === key) {
+          errorMessage = msg;
+          break;
+        }
       }
-      
+
       throw new Error(errorMessage);
     }
-  };
+  }, [tokenService, userService, scheduleTokenRefresh]);
 
-  const googleLogin = () => {
-    console.log('🔗 Redirecting to Google OAuth...');
-    
-    // Generate state parameter for CSRF protection
-    const state = crypto.randomUUID();
-    sessionStorage.setItem('oauth_state', state);
-    
-    // Redirect to Google OAuth
-    window.location.href = `${apiBaseURL}${API_ENDPOINTS.GOOGLE_AUTH}?state=${state}&redirect=${encodeURIComponent(window.location.origin)}`;
-  };
-
-  const completeGoogleProfile = async (profileData) => {
+  // ==================== GOOGLE LOGIN ====================
+  const googleLogin = useCallback(() => {
     try {
-      const csrfTokenValue = tokenService.getCSRFToken();
-      console.log('📝 Completing Google profile...');
+      console.log('🔗 Redirecting to Google OAuth...');
+      const state = crypto.randomUUID();
+      sessionStorage.setItem('oauth_state', state);
+      const redirectUri = encodeURIComponent(window.location.origin);
+      window.location.href = `${apiBaseURL}${API_ENDPOINTS.GOOGLE_AUTH}?state=${state}&redirect=${redirectUri}`;
+    } catch (error) {
+      console.error('❌ Google login error:', error);
+    }
+  }, [apiBaseURL]);
+
+  // ==================== COMPLETE GOOGLE PROFILE ====================
+  const completeGoogleProfile = useCallback(async (profileData) => {
+    try {
+      const csrfTokenValue = tokenService.getCSRFToken() || await tokenService.refreshCSRFToken();
       
       const response = await api.post(API_ENDPOINTS.COMPLETE_PROFILE, profileData, {
         headers: csrfTokenValue ? { 'X-CSRF-Token': csrfTokenValue } : {}
       });
-      
-      console.log('📝 Complete profile response:', response);
-      
-      if (!response.success) {
-        throw new Error(response.message || response.error || 'Profile completion failed');
+
+      if (!response?.success) {
+        throw new Error(response?.message || 'Profile completion failed');
       }
-      
+
       const { user: updatedUser, tokens: newTokens } = response.data;
-      
+
       tokenService.setTokens(newTokens);
       userService.setUser(updatedUser);
       api.setHeader('Authorization', `Bearer ${newTokens.access}`);
       scheduleTokenRefresh(newTokens.access);
-      
+      setIsAuthenticated(true);
+
       return response.data;
     } catch (error) {
-      console.error('Complete Google profile error:', error);
+      console.error('❌ Complete Google profile error:', error);
       throw error;
     }
-  };
+  }, [tokenService, userService, scheduleTokenRefresh]);
 
-  const updateUserProfile = async (profileData) => {
+  // ==================== UPDATE PROFILE ====================
+  const updateUserProfile = useCallback(async (profileData) => {
     try {
-      const csrfTokenValue = tokenService.getCSRFToken();
-      console.log('📝 Updating user profile...');
-      
+      const csrfTokenValue = tokenService.getCSRFToken() || await tokenService.refreshCSRFToken();
+
       const response = await api.put('/auth/profile', profileData, {
         headers: csrfTokenValue ? { 'X-CSRF-Token': csrfTokenValue } : {}
       });
-      
-      console.log('📝 Update profile response:', response);
-      
-      if (!response.success) {
-        throw new Error(response.message || response.error || 'Profile update failed');
+
+      if (!response?.success) {
+        throw new Error(response?.message || 'Profile update failed');
       }
-      
+
       const updatedUser = response.data.user;
       userService.updateUser(updatedUser);
-      
+
       return response.data;
     } catch (error) {
-      console.error('Update profile error:', error);
+      console.error('❌ Update profile error:', error);
       throw error;
     }
-  };
+  }, [tokenService, userService]);
 
-  const logout = async () => {
+  // ==================== LOGOUT ====================
+  const logout = useCallback(async () => {
     try {
       const currentTokens = tokenService.getStoredTokens();
       const csrfTokenValue = tokenService.getCSRFToken();
-      
+
       if (currentTokens?.refresh) {
         console.log('🚪 Attempting server logout...');
-        await api.post(API_ENDPOINTS.LOGOUT, { 
-          refresh: currentTokens.refresh 
+        await api.post(API_ENDPOINTS.LOGOUT, {
+          refresh: currentTokens.refresh
         }, {
           headers: csrfTokenValue ? { 'X-CSRF-Token': csrfTokenValue } : {}
-        });
-        console.log('✅ Server logout successful');
+        }).catch(err => console.warn('Server logout warning:', err));
       }
     } catch (error) {
       console.warn('Server logout failed:', error);
     } finally {
       clearAuth();
-      
-      // Redirect to login
-      window.location.href = `${appBaseURL}/login?session=logged_out`;
+      setTimeout(() => {
+        window.location.href = `${appBaseURL}/login?session=logged_out`;
+      }, 100);
     }
-  };
+  }, [tokenService, clearAuth, appBaseURL]);
 
-  const refreshUser = async () => {
+  // ==================== REFRESH USER ====================
+  const refreshUser = useCallback(async () => {
     try {
       console.log('🔄 Refreshing user data...');
       const response = await api.get(API_ENDPOINTS.ME);
-      
-      if (response.success) {
+
+      if (response?.success) {
         const userData = response.data.user || response.data;
         userService.setUser(userData);
         return userData;
       }
     } catch (error) {
-      console.error('Refresh user error:', error);
+      console.error('❌ Refresh user error:', error);
+      if (error.response?.status === 401) {
+        clearAuth();
+      }
       throw error;
     }
-  };
+  }, [userService, clearAuth]);
 
-  const value = {
+  // ==================== CONTEXT VALUE ====================
+  const value = useMemo(() => ({
     user,
     authError,
+    isAuthenticated,
+    loading,
     login,
     googleLogin,
     logout,
-    loading,
     updateUserProfile,
     completeGoogleProfile,
     refreshUser,
-    isAuthenticated: () => {
-      const currentTokens = tokenService.getStoredTokens();
-      const currentUser = userService.getStoredUser();
-      const authenticated = !!(currentUser && currentTokens && !isTokenExpired(currentTokens.access));
-      
-      console.log('🔍 isAuthenticated check:', {
-        hasUser: !!currentUser,
-        hasTokens: !!currentTokens,
-        isVerified: currentUser?.isVerified,
-        authenticated
-      });
-      
-      return authenticated;
-    },
+    getVerificationEmail: () => sessionStorage.getItem('pending_verification_email') || user?.email,
+    clearVerificationEmail: () => sessionStorage.removeItem('pending_verification_email'),
+    clearSession: clearAuth,
     requiresVerification: () => {
       const currentUser = userService.getStoredUser();
       return !!(currentUser && !currentUser.isVerified);
-    },
-    getVerificationEmail: () => {
-      return sessionStorage.getItem('pending_verification_email') || user?.email;
-    },
-    clearVerificationEmail: () => {
-      sessionStorage.removeItem('pending_verification_email');
-    },
-    clearSession: clearAuth,
-  };
+    }
+  }), [user, authError, isAuthenticated, loading, login, googleLogin, logout,
+      updateUserProfile, completeGoogleProfile, refreshUser, clearAuth, userService]);
 
+  // ==================== RENDER ====================
   return (
     <AuthContext.Provider value={value}>
       {!loading ? children : (
         <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-teal-50 via-white to-cyan-100">
           <div className="text-center">
-            <div className="w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-gray-600 font-medium">Loading UniMarket...</p>
+            <div className="w-16 h-16 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-600 font-medium text-lg">Loading UniMarket...</p>
+            <p className="text-gray-400 text-sm mt-2">Please wait while we prepare your experience</p>
           </div>
         </div>
       )}
