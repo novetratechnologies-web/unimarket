@@ -19,7 +19,7 @@ import {
 import { useAuth } from "../../../context/AuthContext";
 
 const FullScreenAnnouncement = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth(); // isAuthenticated is a BOOLEAN, not a function
   const [isVisible, setIsVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showNextTime, setShowNextTime] = useState(false);
@@ -102,7 +102,8 @@ const FullScreenAnnouncement = () => {
 
   useEffect(() => {
     const checkAndShowAnnouncement = async () => {
-      if (!isAuthenticated() || !user) {
+      // 🔥 FIX: isAuthenticated is a boolean, not a function
+      if (!isAuthenticated || !user) {
         setIsVisible(false);
         return;
       }
@@ -135,7 +136,7 @@ const FullScreenAnnouncement = () => {
     // Small delay to ensure user context is loaded
     const timer = setTimeout(checkAndShowAnnouncement, 1000);
     return () => clearTimeout(timer);
-  }, [user, isAuthenticated]);
+  }, [user, isAuthenticated]); // 🔥 FIX: isAuthenticated is now a boolean dependency
 
   const nextSlide = () => {
     setCurrentIndex((prev) => (prev + 1) % announcements.length);
@@ -151,12 +152,14 @@ const FullScreenAnnouncement = () => {
     setIsVisible(false);
     
     if (showNextTime) {
-      localStorage.setItem(`dontShowAnnouncements_${user.id}`, 'true');
+      localStorage.setItem(`dontShowAnnouncements_${user?.id}`, 'true');
     }
   };
 
   const handleSkipAll = () => {
-    localStorage.setItem(`dontShowAnnouncements_${user.id}`, 'true');
+    if (user) {
+      localStorage.setItem(`dontShowAnnouncements_${user.id}`, 'true');
+    }
     setIsVisible(false);
   };
 

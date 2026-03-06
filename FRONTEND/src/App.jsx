@@ -13,6 +13,7 @@ import Footer from "./components/layout/footer/Footer";
 import UpdateInfo from "./pages/auth/UpdateInfo";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import FullScreenAnnouncement from "./components/layout/FullScreenAnnouncement";
+import Settings from './pages/settings/Settings';
 
 function App() {
   const location = useLocation();
@@ -56,6 +57,11 @@ function App() {
             <Route path="/update-info" element={<UpdateInfo />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/complete-profle" element={<ForgotPassword />} />
+            <Route path="/settings" element={
+                                <ProtectedRoute>
+                                  <Settings />
+                                </ProtectedRoute>
+                              } />
 
 
             {/* ===== MAIN PAGES (With Header/Footer) ===== */}
