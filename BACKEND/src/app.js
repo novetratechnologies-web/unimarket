@@ -212,6 +212,9 @@ app.use('/api', payloadLimiter);
 // ============================================
 // CORS MIDDLEWARE - RENDER OPTIMIZED
 // ============================================
+// ============================================
+// CORS MIDDLEWARE - RENDER OPTIMIZED
+// ============================================
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps, curl)
@@ -251,15 +254,36 @@ app.use(cors({
   credentials: true, // CRITICAL for cookies/auth
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
-    'Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token',
-    'X-Request-ID', 'X-Session-Token', 'Accept', 'Accept-Version',
-    'Content-Length', 'Content-MD5', 'Date', 'X-Api-Version',
-    'X-Response-Time', 'X-Powered-By', 'X-Forwarded-For', 'Origin'
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'X-CSRF-Token',
+    'X-Request-ID', 
+    'X-Session-Token', 
+    'Accept', 
+    'Accept-Version',
+    'Content-Length', 
+    'Content-MD5', 
+    'Date', 
+    'X-Api-Version',
+    'X-Response-Time', 
+    'X-Powered-By', 
+    'X-Forwarded-For', 
+    'Origin',
+    'X-Refresh-Token',
+    'X-Client-Version',   
+    'X-Client-Platform'    
   ],
   exposedHeaders: [
-    'X-Request-ID', 'X-Response-Time', 'X-RateLimit-Limit',
-    'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'X-Session-Token',
-    'X-CSRF-Token', 'Content-Range', 'X-Total-Count'
+    'X-Request-ID', 
+    'X-Response-Time', 
+    'X-RateLimit-Limit',
+    'X-RateLimit-Remaining', 
+    'X-RateLimit-Reset', 
+    'X-Session-Token',
+    'X-CSRF-Token', 
+    'Content-Range', 
+    'X-Total-Count'
   ],
   maxAge: 86400,
   preflightContinue: false,
