@@ -31,6 +31,7 @@ const HeaderMiddle = () => {
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const searchRef = useRef(null);
   const accountMenuRef = useRef(null);
+  const mobileAccountMenuRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -78,6 +79,9 @@ const HeaderMiddle = () => {
         setIsSearchFocused(false);
       }
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setIsAccountMenuOpen(false);
+      }
+      if (mobileAccountMenuRef.current && !mobileAccountMenuRef.current.contains(event.target)) {
         setIsAccountMenuOpen(false);
       }
     };
@@ -159,13 +163,13 @@ const HeaderMiddle = () => {
   }
 
   return (
-    <div className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-100">
+    <div className="sticky top-0 z-[100] bg-white shadow-sm border-b border-gray-100">
       {/* Main Header */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden p-2 rounded-lg text-gray-600 hover:text-teal-600 hover:bg-teal-50 transition-colors"
+            className="md:hidden p-2 rounded-lg text-gray-600 hover:text-teal-600 hover:bg-teal-50 transition-colors relative z-[101]"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label="Toggle menu"
           >
@@ -175,7 +179,7 @@ const HeaderMiddle = () => {
           {/* Logo */}
           <Link 
             to="/" 
-            className="flex items-center space-x-3 flex-shrink-0"
+            className="flex items-center space-x-3 flex-shrink-0 relative z-[101]"
           >
             <div className="w-10 h-10 bg-gradient-to-br from-teal-100 to-cyan-100 rounded-xl flex items-center justify-center">
               <img 
@@ -219,7 +223,7 @@ const HeaderMiddle = () => {
 
               {/* Search Suggestions */}
               {isSearchFocused && search.length === 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-[110] animate-in fade-in slide-in-from-top-2">
                   <div className="p-4 border-b border-gray-100">
                     <p className="text-sm font-semibold text-gray-700">Popular Searches</p>
                   </div>
@@ -241,7 +245,7 @@ const HeaderMiddle = () => {
           </div>
 
           {/* User Actions */}
-          <div className="flex items-center space-x-4 lg:space-x-6">
+          <div className="flex items-center space-x-4 lg:space-x-6 relative z-[101]">
             {/* Wishlist */}
             {isLoggedIn && (
               <Link 
@@ -307,7 +311,7 @@ const HeaderMiddle = () => {
 
                   {/* Desktop Account Dropdown Menu */}
                   {isAccountMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-[110] animate-in fade-in slide-in-from-top-2">
                       {/* User Info */}
                       <div className="p-5 bg-gradient-to-r from-teal-50 to-cyan-50 border-b border-gray-100">
                         <div className="flex items-center space-x-3">
@@ -461,9 +465,9 @@ const HeaderMiddle = () => {
         )}
       </div>
 
-      {/* Mobile Account Dropdown - MODERNIZED */}
+      {/* Mobile Account Dropdown - FIXED Z-INDEX AND POSITIONING */}
       {isLoggedIn && isAccountMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50">
+        <div className="md:hidden fixed inset-0 z-[200]" ref={mobileAccountMenuRef}>
           {/* Modern Backdrop with blur */}
           <div 
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -471,7 +475,7 @@ const HeaderMiddle = () => {
           />
           
           {/* Modern Slide-up Panel */}
-          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl transform transition-all duration-300 animate-in slide-in-from-bottom">
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl transform transition-all duration-300 animate-in slide-in-from-bottom max-h-[85vh] overflow-hidden">
             {/* Header with close button */}
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <div className="flex items-center space-x-3">
@@ -509,7 +513,7 @@ const HeaderMiddle = () => {
             </div>
 
             {/* Menu Items with better spacing */}
-            <div className="px-4 pb-6 max-h-[60vh] overflow-y-auto">
+            <div className="px-4 pb-6 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 200px)' }}>
               {accountMenuItems.map((section, idx) => (
                 <div key={idx} className="mb-4 last:mb-0">
                   <div className="px-3 py-2">
@@ -538,7 +542,7 @@ const HeaderMiddle = () => {
             </div>
 
             {/* Logout Button - Sticky at bottom */}
-            <div className="sticky bottom-0 bg-white border-t border-gray-100 p-6">
+            <div className="border-t border-gray-100 p-6">
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-red-50 to-red-50 text-red-600 hover:from-red-100 hover:to-red-100 rounded-xl font-semibold transition-colors shadow-sm"
@@ -551,9 +555,9 @@ const HeaderMiddle = () => {
         </div>
       )}
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu - FIXED Z-INDEX */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-40">
+        <div className="md:hidden fixed inset-0 z-[150]">
           <div 
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setIsMobileMenuOpen(false)}
