@@ -718,9 +718,6 @@ export const login = async (req, res) => {
     return handleError(res, error, "Login failed");
   }
   
-  // ✅ EXTRA SAFETY: Add a final return to prevent any code after try/catch
-  // This line will never be reached, but it ensures nothing else executes
-  return;
 };
 /** 🔄 REFRESH TOKEN */
 export const refreshToken = async (req, res) => {
