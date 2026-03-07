@@ -482,6 +482,7 @@ const FullScreenAnnouncement = () => {
           </div>
         )}
       </div>
+      
     </div>
   );
 };

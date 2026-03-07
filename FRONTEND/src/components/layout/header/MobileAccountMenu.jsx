@@ -194,6 +194,7 @@ const MobileAccountMenu = ({ isOpen, onClose, user, onLogout, accountMenuItems }
               </div>
             ))}
           </div>
+          
         </div>
 
         {/* Footer with modern logout button */}

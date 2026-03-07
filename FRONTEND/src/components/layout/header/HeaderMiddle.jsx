@@ -599,4 +599,5 @@ const HeaderMiddle = () => {
   );
 };
 
+
 export default HeaderMiddle;
