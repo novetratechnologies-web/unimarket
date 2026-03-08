@@ -99,20 +99,29 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
 
   // Close sidebar on route change
   useEffect(() => {
-    onClose();
-    setActiveCategory(null);
-  }, [location.pathname, onClose]);
+    if (isOpen) {
+      onClose();
+      setActiveCategory(null);
+    }
+  }, [location.pathname]);
 
-  // Handle click outside
+  // Handle click outside with proper event handling
   useEffect(() => {
     const handleClickOutside = (event) => {
+      // Check if the click is outside the sidebar and sidebar is open
       if (sidebarRef.current && !sidebarRef.current.contains(event.target) && isOpen) {
+        // Prevent event bubbling
+        event.stopPropagation();
         onClose();
       }
     };
 
+    // Use mousedown for faster response
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [isOpen, onClose]);
 
   // Prevent body scroll when sidebar is open
@@ -122,10 +131,23 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
     } else {
       document.body.style.overflow = 'unset';
     }
+    
     return () => {
       document.body.style.overflow = 'unset';
     };
   }, [isOpen]);
+
+  // Handle backdrop click
+  const handleBackdropClick = (e) => {
+    // Prevent event from bubbling to parent elements
+    e.stopPropagation();
+    onClose();
+  };
+
+  // Handle sidebar content click - prevent closing
+  const handleSidebarClick = (e) => {
+    e.stopPropagation();
+  };
 
   // Get icon for category
   const getCategoryIcon = (category) => {
@@ -181,17 +203,19 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
   ];
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex">
+        <div 
+          className="fixed inset-0 z-50 flex"
+          onClick={handleBackdropClick}
+        >
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.2 }}
             className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={onClose}
           />
 
           {/* Sidebar */}
@@ -200,8 +224,9 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            transition={{ type: 'spring', damping: 30, stiffness: 200 }}
             className="relative w-full max-w-sm bg-white shadow-2xl overflow-hidden flex flex-col"
+            onClick={handleSidebarClick}
           >
             {/* Header */}
             <div className="bg-gradient-to-r from-teal-600 to-cyan-600 p-6 text-white">
@@ -213,7 +238,10 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                   <span className="font-bold text-xl">UniMarket</span>
                 </div>
                 <button
-                  onClick={onClose}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                  }}
                   className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 hover:rotate-90"
                 >
                   <X className="w-5 h-5" />
@@ -241,7 +269,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
               ) : (
                 <div className="flex gap-2">
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       onClose();
                       navigate('/login');
                     }}
@@ -250,7 +279,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                     Sign In
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       onClose();
                       navigate('/register');
                     }}
@@ -269,6 +299,7 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
                   placeholder="Search categories..."
                   className="w-full px-4 py-2 pl-10 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                 />
@@ -290,7 +321,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                       {navItems.map((item, index) => (
                         <button
                           key={index}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             onClose();
                             navigate(item.path);
                           }}
@@ -321,7 +353,10 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                         {(searchTerm ? filteredCategories : categories).slice(0, 8).map((category, index) => (
                           <button
                             key={category._id}
-                            onClick={() => setActiveCategory(category)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveCategory(category);
+                            }}
                             className="w-full flex items-center justify-between px-3 py-2.5 text-gray-700 hover:bg-teal-50 rounded-lg transition-all duration-200 group"
                           >
                             <div className="flex items-center gap-3">
@@ -337,7 +372,11 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                         ))}
                         {categories.length > 8 && (
                           <button
-                            onClick={() => navigate('/categories')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onClose();
+                              navigate('/categories');
+                            }}
                             className="w-full text-center text-sm text-teal-600 hover:text-teal-700 py-2"
                           >
                             View All {categories.length} Categories
@@ -356,7 +395,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                       {quickLinks.map((link, index) => (
                         <button
                           key={index}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             onClose();
                             navigate(link.path);
                           }}
@@ -374,7 +414,10 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                 <div className="p-4">
                   {/* Back Button */}
                   <button
-                    onClick={() => setActiveCategory(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveCategory(null);
+                    }}
                     className="flex items-center gap-2 text-gray-600 hover:text-teal-600 mb-4 group"
                   >
                     <ChevronRight className="w-5 h-5 rotate-180 group-hover:-translate-x-1 transition-transform" />
@@ -393,7 +436,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                       </div>
                     </div>
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         onClose();
                         navigate(`/category/${activeCategory.slug}`);
                       }}
@@ -408,7 +452,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                     {activeCategory.children?.map((subcat, idx) => (
                       <div key={subcat._id} className="bg-white border border-gray-100 rounded-xl p-3 hover:border-teal-200 transition-colors">
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             onClose();
                             navigate(`/category/${subcat.slug}`);
                           }}
@@ -431,7 +476,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                             {subcat.children.slice(0, 3).map((thirdLevel) => (
                               <button
                                 key={thirdLevel._id}
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   onClose();
                                   navigate(`/category/${thirdLevel.slug}`);
                                 }}
@@ -447,7 +493,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
                             ))}
                             {subcat.children.length > 3 && (
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   onClose();
                                   navigate(`/category/${subcat.slug}`);
                                 }}
@@ -469,7 +516,8 @@ const Sidebar = ({ isOpen, onClose, user, onLogout }) => {
             {user && (
               <div className="border-t border-gray-200 p-4">
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     onClose();
                     onLogout();
                   }}
