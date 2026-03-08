@@ -1,6 +1,7 @@
 // admin/src/context/NotificationContext.jsx
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import api from '../api/api' // Fixed import - should be from '../api' not '../api/api'
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { io } from 'socket.io-client'
+import api from '../api/api' // Fixed import
 import { useAuth } from './AuthContext'
 import { useToast } from '../hooks/useToast'
 
@@ -18,9 +19,15 @@ export const NotificationProvider = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(false)
-  const [socket, setSocket] = useState(null)
+  const [isConnected, setIsConnected] = useState(false)
+  const socketRef = useRef(null)
+  const reconnectAttempts = useRef(0)
+  const pollingIntervalRef = useRef(null)
+  
   const { user, isAuthenticated } = useAuth()
   const { showToast } = useToast()
+
+  const MAX_RECONNECT_ATTEMPTS = 5
 
   // Fetch unread count
   const fetchUnreadCount = useCallback(async () => {
@@ -31,19 +38,14 @@ export const NotificationProvider = ({ children }) => {
       const response = await api.notifications.getUnreadCount()
       console.log('📨 Unread count response:', response)
       
-      // Handle different response structures
       if (response?.success) {
-        // Response has { success: true, count: 5 }
         setUnreadCount(response.count || 0)
       } else if (response?.count !== undefined) {
-        // Direct response with count
         setUnreadCount(response.count)
       } else if (response?.unreadCount !== undefined) {
-        // Response has unreadCount
         setUnreadCount(response.unreadCount)
       }
     } catch (error) {
-      // Don't log 401 errors during initial load
       if (error.status !== 401) {
         console.error('Failed to fetch unread count:', error)
       }
@@ -67,25 +69,20 @@ export const NotificationProvider = ({ children }) => {
       
       console.log('📨 Notifications response:', response)
       
-      // Handle different response structures
       let notificationsList = []
       let unread = 0
       
       if (response?.success) {
-        // Standard response with success flag
         notificationsList = response.notifications || []
         unread = response.unreadCount !== undefined ? response.unreadCount : 
                  response.count !== undefined ? response.count : 0
       } else if (response?.notifications) {
-        // Response has notifications property
         notificationsList = response.notifications
         unread = response.unreadCount || response.count || 0
       } else if (Array.isArray(response)) {
-        // Response is the array itself
         notificationsList = response
         unread = response.filter(n => !n.isRead).length
       } else if (response?.data) {
-        // Response wrapped in data property
         notificationsList = response.data.notifications || response.data || []
         unread = response.data.unreadCount || response.data.count || 0
       }
@@ -104,6 +101,187 @@ export const NotificationProvider = ({ children }) => {
     }
   }, [isAuthenticated, user])
 
+  // Stop polling
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current)
+      pollingIntervalRef.current = null
+      console.log('📡 Polling stopped')
+    }
+  }, [])
+
+  // Start polling fallback
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current) return
+    
+    console.log('📡 Starting polling fallback')
+    fetchUnreadCount()
+    
+    pollingIntervalRef.current = setInterval(() => {
+      fetchUnreadCount()
+    }, 30000) // Poll every 30 seconds
+    
+    return () => stopPolling()
+  }, [fetchUnreadCount, stopPolling])
+
+  // Connect WebSocket
+  const connectWebSocket = useCallback(() => {
+    if (!isAuthenticated || !user) return
+    
+    // Close existing connection
+    if (socketRef.current) {
+      socketRef.current.disconnect()
+      socketRef.current = null
+    }
+
+    const token = localStorage.getItem('admin_access_token')
+    if (!token) {
+      console.log('📡 No token, using polling')
+      startPolling()
+      return
+    }
+
+    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:5000'
+    
+    console.log('📡 Connecting to WebSocket...', wsUrl)
+    
+    const socket = io(wsUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: { token },
+      query: { token },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
+      forceNew: true
+    })
+
+    socket.on('connect', () => {
+      console.log('✅ WebSocket connected')
+      setIsConnected(true)
+      reconnectAttempts.current = 0
+      stopPolling()
+      
+      // Join user rooms
+      if (user?.id) {
+        socket.emit('join', `user:${user.id}`)
+        socket.emit('join', `user-${user.id}`)
+      }
+      
+      if (user?.role) {
+        socket.emit('join', `role:${user.role}`)
+        socket.emit('join', `role-${user.role}`)
+      }
+      
+      if (user?.role === 'admin' || user?.role === 'super_admin') {
+        socket.emit('join', 'admins')
+      }
+    })
+
+    socket.on('notification', (data) => {
+      console.log('📨 New notification:', data)
+      
+      setUnreadCount(prev => prev + 1)
+      
+      setNotifications(prev => {
+        // Don't add duplicates
+        if (prev.some(n => n._id === data._id)) return prev
+        return [data, ...prev].slice(0, 50)
+      })
+      
+      showToast({
+        title: data?.title || 'New Notification',
+        description: data?.message || '',
+        type: data?.priority === 'high' || data?.priority === 'urgent' ? 'warning' : 'info',
+        duration: 5000
+      })
+    })
+
+    socket.on('notification:read', (data) => {
+      console.log('📨 Notification read:', data)
+      
+      setNotifications(prev =>
+        prev.map(n => 
+          n._id === data.id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n
+        )
+      )
+      setUnreadCount(prev => Math.max(0, prev - 1))
+    })
+
+    socket.on('notifications:read', (data) => {
+      console.log('📨 Multiple notifications read:', data)
+      
+      if (data?.notificationIds) {
+        setNotifications(prev =>
+          prev.map(n => 
+            data.notificationIds.includes(n._id) 
+              ? { ...n, isRead: true, readAt: new Date().toISOString() } 
+              : n
+          )
+        )
+        if (data.unreadCount !== undefined) {
+          setUnreadCount(data.unreadCount)
+        }
+      }
+    })
+
+    socket.on('notifications:all-read', () => {
+      console.log('📨 All notifications marked as read')
+      
+      setNotifications(prev =>
+        prev.map(n => ({ ...n, isRead: true, readAt: new Date().toISOString() }))
+      )
+      setUnreadCount(0)
+    })
+
+    socket.on('notification:archived', (data) => {
+      console.log('📨 Notification archived:', data)
+      
+      setNotifications(prev => prev.filter(n => n._id !== data.id))
+    })
+
+    socket.on('notification:deleted', (data) => {
+      console.log('📨 Notification deleted:', data)
+      
+      setNotifications(prev => prev.filter(n => n._id !== data.id))
+    })
+
+    socket.on('notifications:cleared', () => {
+      console.log('📨 All notifications cleared')
+      setNotifications([])
+      setUnreadCount(0)
+    })
+
+    socket.on('connected', (data) => {
+      console.log('📨 Connection confirmed:', data)
+    })
+
+    socket.on('disconnect', (reason) => {
+      console.log('❌ WebSocket disconnected:', reason)
+      setIsConnected(false)
+      
+      if (reason === 'io server disconnect' || reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+        console.log('📡 Falling back to polling')
+        startPolling()
+      }
+    })
+
+    socket.on('connect_error', (error) => {
+      console.log('⚠️ WebSocket connection error:', error.message)
+      reconnectAttempts.current++
+      
+      if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+        console.log('📡 Max reconnect attempts reached, falling back to polling')
+        socket.disconnect()
+        startPolling()
+      }
+    })
+
+    socketRef.current = socket
+  }, [isAuthenticated, user, showToast, startPolling, stopPolling])
+
   // Mark a single notification as read
   const markAsRead = useCallback(async (id) => {
     if (!isAuthenticated) return
@@ -111,14 +289,12 @@ export const NotificationProvider = ({ children }) => {
     try {
       await api.notifications.markAsRead(id)
       
-      // Update local state
       setNotifications(prev =>
         prev.map(n => 
           n._id === id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n
         )
       )
       
-      // Update unread count
       setUnreadCount(prev => Math.max(0, prev - 1))
       
     } catch (error) {
@@ -133,7 +309,6 @@ export const NotificationProvider = ({ children }) => {
     try {
       await api.notifications.markAllAsRead()
       
-      // Update local state
       setNotifications(prev =>
         prev.map(n => ({ ...n, isRead: true, readAt: new Date().toISOString() }))
       )
@@ -157,11 +332,9 @@ export const NotificationProvider = ({ children }) => {
     try {
       await api.notifications.archive(id)
       
-      // Remove from list
+      const wasUnread = notifications.find(n => n._id === id)?.isRead === false
       setNotifications(prev => prev.filter(n => n._id !== id))
       
-      // Update unread count if it was unread
-      const wasUnread = notifications.find(n => n._id === id)?.isRead === false
       if (wasUnread) {
         setUnreadCount(prev => Math.max(0, prev - 1))
       }
@@ -185,83 +358,20 @@ export const NotificationProvider = ({ children }) => {
     }
   }, [isAuthenticated, fetchUnreadCount, fetchNotifications])
 
-  // WebSocket connection for real-time notifications
+  // WebSocket connection
   useEffect(() => {
-    if (!isAuthenticated || !user) return
-
-    const token = localStorage.getItem('admin_access_token')
-    if (!token) return
-
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5000'
-    const ws = new WebSocket(`${wsUrl}?token=${token}`)
-
-    ws.onopen = () => {
-      console.log('🔌 WebSocket connected for notifications')
+    if (isAuthenticated) {
+      connectWebSocket()
     }
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        console.log('📨 WebSocket message:', data)
-        
-        if (data.type === 'notification') {
-          // New notification received
-          setUnreadCount(prev => prev + 1)
-          
-          // Add to notifications list
-          setNotifications(prev => [data.notification, ...prev].slice(0, 50))
-          
-          showToast({
-            title: data.notification?.title || 'New Notification',
-            description: data.notification?.message || '',
-            type: data.notification?.priority === 'high' ? 'warning' : 'info'
-          })
-        } else if (data.type === 'notification:read') {
-          // Update local state
-          setNotifications(prev =>
-            prev.map(n => 
-              n._id === data.id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n
-            )
-          )
-          setUnreadCount(prev => Math.max(0, prev - 1))
-        } else if (data.type === 'notifications:all-read') {
-          setNotifications(prev =>
-            prev.map(n => ({ ...n, isRead: true, readAt: new Date().toISOString() }))
-          )
-          setUnreadCount(0)
-        }
-      } catch (error) {
-        console.error('WebSocket message error:', error)
-      }
-    }
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
-    }
-
-    ws.onclose = () => {
-      console.log('🔌 WebSocket disconnected')
-    }
-
-    setSocket(ws)
-
+    
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close()
+      if (socketRef.current) {
+        socketRef.current.disconnect()
+        socketRef.current = null
       }
+      stopPolling()
     }
-  }, [isAuthenticated, user, showToast])
-
-  // Polling fallback (only if WebSocket fails)
-  useEffect(() => {
-    if (!isAuthenticated || socket?.readyState === WebSocket.OPEN) return
-
-    const interval = setInterval(() => {
-      fetchUnreadCount()
-    }, 60000) // Only fetch unread count, not full list
-
-    return () => clearInterval(interval)
-  }, [isAuthenticated, socket, fetchUnreadCount])
+  }, [isAuthenticated, connectWebSocket, stopPolling])
 
   const value = {
     unreadCount,
@@ -269,6 +379,7 @@ export const NotificationProvider = ({ children }) => {
     notifications,
     setNotifications,
     loading,
+    isConnected,
     refreshNotifications,
     fetchNotifications,
     fetchUnreadCount,

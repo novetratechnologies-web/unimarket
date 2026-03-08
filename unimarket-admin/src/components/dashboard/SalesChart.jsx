@@ -1,68 +1,107 @@
-import React, { useState } from 'react'
+// admin/src/components/dashboard/SalesChart.jsx
+import React from 'react';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend
+} from 'recharts';
+import { format } from 'date-fns';
 
-const SalesChart = () => {
-  const [data] = useState({
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-    values: [12000, 19000, 15000, 25000, 22000, 30000, 28000, 35000, 32000, 40000, 38000, 45000],
-    previousYear: [10000, 15000, 13000, 18000, 20000, 25000, 23000, 28000, 27000, 32000, 31000, 38000]
-  })
+const SalesChart = ({ data, period, height = 350, color = '#3B82F6', loading }) => {
+  if (loading) {
+    return <div className="h-[350px] bg-gray-100 rounded-xl animate-pulse" />;
+  }
 
-  const maxValue = Math.max(...data.values, ...data.previousYear)
+  if (!data || data.length === 0) {
+    return (
+      <div className="h-[350px] flex items-center justify-center bg-gray-50 rounded-xl">
+        <p className="text-gray-500">No data available</p>
+      </div>
+    );
+  }
 
-  return (
-    <div>
-      <div className="h-64 relative">
-        {/* Grid lines */}
-        <div className="absolute inset-0 flex flex-col justify-between">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="border-t border-gray-100"></div>
-          ))}
-        </div>
-        
-        {/* Chart bars */}
-        <div className="absolute inset-0 flex items-end justify-between px-2">
-          {data.values.map((value, index) => (
-            <div key={index} className="flex flex-col items-center w-8">
-              {/* Current year bar */}
-              <div 
-                className="w-3 bg-gradient-to-t from-primary-500 to-blue-400 rounded-t-lg transition-all hover:opacity-80 cursor-pointer group relative"
-                style={{ height: `${(value / maxValue) * 100}%` }}
-              >
-                <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
-                  ${value.toLocaleString()}
-                </div>
-              </div>
-              
-              {/* Previous year bar */}
-              <div 
-                className="w-2 bg-gray-300 rounded-t-lg mt-1 transition-all hover:opacity-80 cursor-pointer group relative"
-                style={{ height: `${(data.previousYear[index] / maxValue) * 100}%` }}
-              >
-                <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
-                  ${data.previousYear[index].toLocaleString()}
-                </div>
-              </div>
-              
-              {/* Month label */}
-              <div className="text-xs text-gray-500 mt-2">{data.labels[index]}</div>
+  const formatXAxis = (value) => {
+    if (period === 'hourly') return format(new Date(value), 'HH:00');
+    if (period === 'daily') return format(new Date(value), 'MMM d');
+    if (period === 'weekly') return format(new Date(value), "'W'w");
+    if (period === 'monthly') return format(new Date(value), 'MMM yyyy');
+    return value;
+  };
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-4 rounded-xl shadow-lg border border-gray-200">
+          <p className="text-sm font-medium text-gray-900 mb-2">
+            {format(new Date(label), 'PPP')}
+          </p>
+          {payload.map((entry, index) => (
+            <div key={index} className="flex items-center gap-2 text-sm">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+              <span className="text-gray-600">{entry.name}:</span>
+              <span className="font-medium text-gray-900">
+                {entry.name === 'revenue' 
+                  ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(entry.value)
+                  : entry.value.toLocaleString()}
+              </span>
             </div>
           ))}
         </div>
-      </div>
-      
-      {/* Chart legend */}
-      <div className="flex items-center justify-center space-x-4 mt-6">
-        <div className="flex items-center">
-          <div className="h-3 w-3 bg-gradient-to-t from-primary-500 to-blue-400 rounded mr-2"></div>
-          <span className="text-sm text-gray-600">This Year</span>
-        </div>
-        <div className="flex items-center">
-          <div className="h-3 w-3 bg-gray-300 rounded mr-2"></div>
-          <span className="text-sm text-gray-600">Last Year</span>
-        </div>
-      </div>
-    </div>
-  )
-}
+      );
+    }
+    return null;
+  };
 
-export default SalesChart
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
+            <stop offset="95%" stopColor={color} stopOpacity={0.1}/>
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+        <XAxis 
+          dataKey="_id" 
+          tickFormatter={formatXAxis}
+          tick={{ fontSize: 12, fill: '#6B7280' }}
+          axisLine={{ stroke: '#E5E7EB' }}
+        />
+        <YAxis 
+          tick={{ fontSize: 12, fill: '#6B7280' }}
+          axisLine={{ stroke: '#E5E7EB' }}
+          tickFormatter={(value) => 
+            value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value
+          }
+        />
+        <Tooltip content={<CustomTooltip />} />
+        <Legend />
+        <Area
+          type="monotone"
+          dataKey="revenue"
+          stroke={color}
+          fill="url(#colorValue)"
+          name="Revenue"
+          strokeWidth={2}
+        />
+        <Area
+          type="monotone"
+          dataKey="orders"
+          stroke="#10B981"
+          fill="#10B981"
+          fillOpacity={0.1}
+          name="Orders"
+          strokeWidth={2}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+};
+
+export default SalesChart;

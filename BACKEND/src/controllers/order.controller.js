@@ -3,7 +3,6 @@ import OrderItem from '../models/OrderItem.js';
 import Product from '../models/Product.js';
 import AdminVendor from '../models/AdminVendor.js';
 import ActivityLog from '../models/ActivityLog.js';
-import DashboardStats from '../models/DashboardStats.js';
 import mongoose from 'mongoose';
 import { sendEmail } from '../utils/email.js';
 import { generateOrderNumber, calculateTax, calculateShipping } from '../utils/order.js';

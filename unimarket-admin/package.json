@@ -13,6 +13,7 @@
   "dependencies": {
     "@headlessui/react": "^2.2.9",
     "@heroicons/react": "^2.2.0",
+    "@nivo/geo": "^0.99.0",
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-query-devtools": "^5.91.3",
     "axios": "^1.13.5",
@@ -35,6 +36,7 @@
     "slate-react": "^0.123.0",
     "socket.io-client": "^4.8.3",
     "ui": "^0.2.4",
+    "world-countries": "^5.1.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

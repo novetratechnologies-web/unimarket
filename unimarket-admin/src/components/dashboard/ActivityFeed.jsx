@@ -55,6 +55,144 @@ import { useToast } from '../../hooks/useToast';
 import api from '../../api/api';
 
 // ============================================
+// MOCK ACTIVITIES FOR DEVELOPMENT
+// ============================================
+const getMockActivities = () => {
+  const now = new Date();
+  return [
+    {
+      id: '1',
+      action: 'order_created',
+      type: 'order',
+      resourceId: 'ORD-001',
+      resourceType: 'order',
+      resourceIdentifier: 'ORD-001',
+      description: 'New order #ORD-001 created for $299.99',
+      user: { firstName: 'John', lastName: 'Doe', email: 'john@example.com' },
+      userEmail: 'john@example.com',
+      userRole: 'customer',
+      createdAt: new Date(now - 5 * 60000).toISOString(),
+      severity: 'info',
+      status: 'success',
+      metadata: { amount: 299.99 },
+      isNew: true
+    },
+    {
+      id: '2',
+      action: 'user_registered',
+      type: 'user',
+      resourceId: 'USR-001',
+      resourceType: 'user',
+      resourceIdentifier: 'USR-001',
+      description: 'New user registered: jane@example.com',
+      user: { firstName: 'Jane', lastName: 'Smith', email: 'jane@example.com' },
+      userEmail: 'jane@example.com',
+      userRole: 'customer',
+      createdAt: new Date(now - 15 * 60000).toISOString(),
+      severity: 'success',
+      status: 'success',
+      isNew: true
+    },
+    {
+      id: '3',
+      action: 'product_updated',
+      type: 'product',
+      resourceId: 'PRD-001',
+      resourceType: 'product',
+      resourceIdentifier: 'PRD-001',
+      resourceName: 'Gaming Laptop',
+      description: 'Product "Gaming Laptop" stock updated from 5 to 3',
+      user: { firstName: 'Mike', lastName: 'Johnson', email: 'mike@example.com' },
+      userEmail: 'mike@example.com',
+      userRole: 'vendor',
+      createdAt: new Date(now - 45 * 60000).toISOString(),
+      severity: 'warning',
+      status: 'warning',
+      changes: [
+        { field: 'quantity', oldValue: 5, newValue: 3 }
+      ],
+      isNew: true
+    },
+    {
+      id: '4',
+      action: 'payment_received',
+      type: 'payment',
+      resourceId: 'PAY-001',
+      resourceType: 'payment',
+      resourceIdentifier: 'PAY-001',
+      description: 'Payment of $1,299.99 received for order #ORD-002',
+      user: { firstName: 'Sarah', lastName: 'Williams', email: 'sarah@example.com' },
+      userEmail: 'sarah@example.com',
+      userRole: 'customer',
+      createdAt: new Date(now - 2 * 60 * 60000).toISOString(),
+      severity: 'success',
+      status: 'success'
+    },
+    {
+      id: '5',
+      action: 'vendor_approved',
+      type: 'vendor',
+      resourceId: 'VEN-001',
+      resourceType: 'vendor',
+      resourceIdentifier: 'VEN-001',
+      resourceName: 'Tech Supplies Co',
+      description: 'Vendor "Tech Supplies Co" approved',
+      user: { firstName: 'Admin', lastName: 'User', email: 'admin@example.com' },
+      userEmail: 'admin@example.com',
+      userRole: 'admin',
+      createdAt: new Date(now - 3 * 60 * 60000).toISOString(),
+      severity: 'success',
+      status: 'success'
+    },
+    {
+      id: '6',
+      action: 'order_shipped',
+      type: 'order',
+      resourceId: 'ORD-002',
+      resourceType: 'order',
+      resourceIdentifier: 'ORD-002',
+      description: 'Order #ORD-002 has been shipped',
+      user: { firstName: 'David', lastName: 'Brown', email: 'david@example.com' },
+      userEmail: 'david@example.com',
+      userRole: 'vendor',
+      createdAt: new Date(now - 5 * 60 * 60000).toISOString(),
+      severity: 'info',
+      status: 'success'
+    },
+    {
+      id: '7',
+      action: 'discount_created',
+      type: 'discount',
+      resourceId: 'DSC-001',
+      resourceType: 'discount',
+      resourceIdentifier: 'DSC-001',
+      description: 'Summer Sale discount created (20% off)',
+      user: { firstName: 'Emily', lastName: 'Davis', email: 'emily@example.com' },
+      userEmail: 'emily@example.com',
+      userRole: 'admin',
+      createdAt: new Date(now - 7 * 60 * 60000).toISOString(),
+      severity: 'info',
+      status: 'success'
+    },
+    {
+      id: '8',
+      action: 'user_suspended',
+      type: 'user',
+      resourceId: 'USR-002',
+      resourceType: 'user',
+      resourceIdentifier: 'USR-002',
+      description: 'User account suspended due to policy violation',
+      user: { firstName: 'Admin', lastName: 'User', email: 'admin@example.com' },
+      userEmail: 'admin@example.com',
+      userRole: 'admin',
+      createdAt: new Date(now - 12 * 60 * 60000).toISOString(),
+      severity: 'critical',
+      status: 'failure'
+    }
+  ];
+};
+
+// ============================================
 // COMPREHENSIVE ACTIVITY TYPE CONFIGURATION
 // ============================================
 const ACTIVITY_CONFIG = {
@@ -87,6 +225,15 @@ const ACTIVITY_CONFIG = {
     description: 'Failed login attempt'
   },
   register: {
+    icon: UserPlus,
+    color: 'text-green-600',
+    bgColor: 'bg-green-50',
+    label: 'New Registration',
+    category: 'user',
+    priority: 2,
+    description: 'New user registered'
+  },
+  user_registered: {
     icon: UserPlus,
     color: 'text-green-600',
     bgColor: 'bg-green-50',
@@ -1165,7 +1312,7 @@ const ActivityFeed = ({
   const { showToast } = useToast();
 
   // ============================================
-  // FETCH ACTIVITIES FROM ACTIVITY LOG API
+  // FETCH ACTIVITIES FROM DASHBOARD API
   // ============================================
   const fetchActivities = useCallback(async (showRefreshingState = false) => {
     try {
@@ -1188,7 +1335,6 @@ const ActivityFeed = ({
       }
       
       if (filterCategories.length > 0) {
-        // Note: You'd need backend support for category filtering
         params.append('categories', filterCategories.join(','));
       }
       
@@ -1196,29 +1342,26 @@ const ActivityFeed = ({
         params.append('severity', filterSeverity.join(','));
       }
 
-      console.log('🔍 Fetching activities with params:', params.toString());
+      console.log('🔍 Fetching activities from dashboard API with params:', params.toString());
 
-      // Fetch from activities API
-      const response = await api.activities.getAll(params);
+      // Fetch from dashboard activities API
+      const response = await api.dashboard.getActivities(params);
       
-      // Fetch statistics
-      const statsResponse = await api.activities.getStatistics({ days: 7 });
-
       console.log('✅ Activities response:', response);
 
       if (response?.success && response?.data) {
-        const activitiesData = response.data.activities || [];
+        const activitiesData = Array.isArray(response.data) ? response.data : (response.data.activities || []);
         
         const transformedActivities = activitiesData.map(activity => ({
-          id: activity._id,
+          id: activity._id || activity.id,
           ...activity,
           timestamp: activity.createdAt,
-          type: activity.action,
+          type: activity.action || activity.type,
           user: activity.user,
           userEmail: activity.userEmail,
           userRole: activity.userRole,
           action: activity.action,
-          description: activity.description || `${activity.action} ${activity.resourceType}`,
+          description: activity.description || `${activity.action || ''} ${activity.resourceType || ''}`.trim(),
           details: activity.description,
           isNew: new Date(activity.createdAt) > new Date(Date.now() - 24 * 60 * 60 * 1000),
           timeAgo: activity.timeAgo,
@@ -1230,10 +1373,12 @@ const ActivityFeed = ({
         setActivities(transformedActivities.slice(0, limit));
         setUnreadCount(transformedActivities.filter(a => a.isNew).length);
         
-        if (response.data.summary) {
-          setStats({ overall: response.data.summary });
-        } else if (statsResponse?.data?.overall) {
-          setStats(statsResponse.data);
+        // Try to get stats from another endpoint
+        try {
+          const statsResponse = await api.dashboard.getActivityStats();
+          setStats(statsResponse?.data || null);
+        } catch (statsErr) {
+          console.log('Stats endpoint not available');
         }
       } else if (Array.isArray(response)) {
         // Handle case where response is directly the array
@@ -1261,19 +1406,21 @@ const ActivityFeed = ({
       console.error('❌ Failed to fetch activities:', err);
       setError(err.message || 'Failed to load activities');
       
-      // Only show mock data in development if no activities
-      if (process.env.NODE_ENV === 'development' && activities.length === 0) {
+      // Only show mock data in development
+      if (process.env.NODE_ENV === 'development') {
         console.log('📱 Using mock data in development');
-        setActivities(getMockActivities());
+        const mockActivities = getMockActivities();
+        setActivities(mockActivities.slice(0, limit));
+        setUnreadCount(mockActivities.filter(a => a.isNew).length);
         showToast('Using mock data (development mode)', 'info');
-      } else if (activities.length === 0) {
+      } else {
         showToast('Failed to load activities', 'error');
       }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [limit, filterTypes, filterCategories, filterSeverity, showToast, activities.length]);
+  }, [limit, filterTypes, filterCategories, filterSeverity, showToast]);
 
   // Initial fetch
   useEffect(() => {
@@ -1327,7 +1474,7 @@ const ActivityFeed = ({
 
   const handleActivityClick = (activity, resourceLink) => {
     if (onActivityClick) {
-      onActivityClick(activity);
+      onActivityClick(activity, resourceLink);
     } else if (resourceLink) {
       navigate(resourceLink);
     } else {

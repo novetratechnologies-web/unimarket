@@ -1,7 +1,6 @@
 // admin.controller.js - FULLY OPTIMIZED
 import AdminVendor from '../models/AdminVendor.js';
 import ActivityLog from '../models/ActivityLog.js';
-import DashboardStats from '../models/DashboardStats.js';
 import Product from '../models/Product.js';
 import Order from '../models/Order.js';
 import Payout from '../models/Payout.js';
@@ -17,6 +16,7 @@ import { hashPassword } from '../middleware/auth.js';
 // ============================================
 // AUTHENTICATION & SESSION MANAGEMENT
 // ============================================
+
 
 /**
  * @desc    Admin Login
@@ -40,7 +40,7 @@ export const adminLogin = async (req, res) => {
       email: email.toLowerCase().trim(), 
       role: { $in: ['super_admin', 'admin'] },
       isDeleted: false 
-    }).select('+password +twoFactorAuth.secret +twoFactorAuth.backupCodes +loginAttempts +lockUntil');
+    }).select('+password +twoFactorAuth.secret +twoFactorAuth.backupCodes +loginAttempts +lockUntil +refreshToken');
 
     if (!admin) {
       // Log failed attempt
@@ -200,14 +200,24 @@ export const adminLogin = async (req, res) => {
     }).catch(() => {});
 
     // Remove sensitive data before sending
-    const adminResponse = admin.toObject();
-    delete adminResponse.password;
-    if (adminResponse.twoFactorAuth) {
-      delete adminResponse.twoFactorAuth.secret;
-      delete adminResponse.twoFactorAuth.backupCodes;
-    }
-    delete adminResponse.refreshToken;
-    delete adminResponse.sessionTokens;
+    const adminResponse = {
+      id: admin._id,
+      email: admin.email,
+      firstName: admin.firstName,
+      lastName: admin.lastName,
+      role: admin.role,
+      permissions: admin.permissions,
+      status: admin.status,
+      adminProfile: admin.adminProfile ? {
+        employeeId: admin.adminProfile.employeeId,
+        department: admin.adminProfile.department,
+        position: admin.adminProfile.position,
+        joinedAt: admin.adminProfile.joinedAt
+      } : null,
+      lastLogin: admin.lastLogin,
+      lastLoginIp: admin.lastLoginIp,
+      createdAt: admin.createdAt
+    };
 
     return res.status(200).json({
       success: true,
@@ -230,7 +240,6 @@ export const adminLogin = async (req, res) => {
     });
   }
 };
-
 /**
  * @desc    Admin Logout
  * @route   POST /api/admin/auth/logout
@@ -281,6 +290,11 @@ export const adminLogout = async (req, res) => {
  * @route   POST /api/admin/auth/refresh
  * @access  Public
  */
+/**
+ * @desc    Refresh Access Token
+ * @route   POST /api/admin/auth/refresh
+ * @access  Public
+ */
 export const refreshAccessToken = async (req, res) => {
   try {
     const { refreshToken } = req.body;
@@ -294,7 +308,11 @@ export const refreshAccessToken = async (req, res) => {
     
     const admin = await AdminVendor.findById(decoded.id);
     
-    if (!admin || admin.refreshToken?.token !== refreshToken) {
+    if (!admin) {
+      return res.status(401).json({ success: false, message: 'Invalid refresh token' });
+    }
+
+    if (admin.refreshToken?.token !== refreshToken) {
       return res.status(401).json({ success: false, message: 'Invalid refresh token' });
     }
 
@@ -303,7 +321,16 @@ export const refreshAccessToken = async (req, res) => {
     }
 
     // Generate new access token
-    const accessToken = generateAccessToken(admin);
+    const accessToken = jwt.sign(
+      {
+        id: admin._id,
+        email: admin.email,
+        role: admin.role,
+        permissions: admin.permissions
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
     res.status(200).json({
       success: true,
@@ -313,11 +340,15 @@ export const refreshAccessToken = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Token refresh error:', error);
+    console.error('❌ Refresh error:', error);
     res.status(401).json({ success: false, message: 'Invalid refresh token' });
   }
 };
-
+/**
+ * @desc    Get Current Admin Profile
+ * @route   GET /api/admin/auth/me
+ * @access  Private (Admin)
+ */
 /**
  * @desc    Get Current Admin Profile
  * @route   GET /api/admin/auth/me
@@ -329,13 +360,45 @@ export const getCurrentAdmin = async (req, res) => {
       .select('-password -refreshToken -twoFactorAuth.secret -twoFactorAuth.backupCodes')
       .lean();
 
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    // Format the response to match what the frontend expects
+    const adminResponse = {
+      id: admin._id,
+      email: admin.email,
+      firstName: admin.firstName,
+      lastName: admin.lastName,
+      role: admin.role,
+      permissions: admin.permissions,
+      status: admin.status,
+      adminProfile: admin.adminProfile ? {
+        employeeId: admin.adminProfile.employeeId,
+        department: admin.adminProfile.department,
+        position: admin.adminProfile.position,
+        joinedAt: admin.adminProfile.joinedAt,
+        loginHistory: admin.adminProfile.loginHistory?.slice(-5) || []
+      } : null,
+      lastLogin: admin.lastLogin,
+      lastLoginIp: admin.lastLoginIp,
+      createdAt: admin.createdAt,
+      updatedAt: admin.updatedAt
+    };
+
     res.status(200).json({
       success: true,
-      data: admin
+      data: adminResponse
     });
   } catch (error) {
     console.error('Get current admin error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch admin profile' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch admin profile' 
+    });
   }
 };
 
@@ -999,190 +1062,6 @@ export const bulkUpdateAdmins = async (req, res) => {
   }
 };
 
-// ============================================
-// DASHBOARD & ANALYTICS
-// ============================================
-
-/**
- * @desc    Get Admin Dashboard Stats - FULLY OPTIMIZED
- * @route   GET /api/admin/dashboard
- * @access  Private (Admin)
- */
-export const getDashboardStats = async (req, res) => {
-  try {
-    const { period = 'today' } = req.query;
-    const now = new Date();
-    let startDate, endDate;
-
-    // Calculate date ranges
-    switch (period) {
-      case 'today':
-        startDate = new Date(now.setHours(0, 0, 0, 0));
-        endDate = new Date(now.setHours(23, 59, 59, 999));
-        break;
-      case 'yesterday':
-        startDate = new Date(now.setDate(now.getDate() - 1));
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(startDate);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'last7':
-        startDate = new Date(now.setDate(now.getDate() - 7));
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date();
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'last30':
-        startDate = new Date(now.setDate(now.getDate() - 30));
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date();
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      default:
-        startDate = new Date(now.setHours(0, 0, 0, 0));
-        endDate = new Date(now.setHours(23, 59, 59, 999));
-    }
-
-    // Use Promise.allSettled to handle partial failures
-    const [
-      revenueResult,
-      vendorCountsResult,
-      productCountsResult,
-      recentOrdersResult,
-      recentVendorsResult,
-      topProductsResult
-    ] = await Promise.allSettled([
-      // Revenue stats - using aggregation with timeout
-      Order.aggregate([
-        {
-          $match: {
-            createdAt: { $gte: startDate, $lte: endDate },
-            paymentStatus: 'paid',
-            status: { $ne: 'cancelled' }
-          }
-        },
-        {
-          $group: {
-            _id: null,
-            totalRevenue: { $sum: '$total' },
-            totalOrders: { $sum: 1 },
-            averageOrderValue: { $avg: '$total' },
-            totalCommission: { $sum: { $sum: '$vendors.commission' } }
-          }
-        }
-      ]).maxTimeMS(3000),
-
-      // Vendor counts by status
-      AdminVendor.aggregate([
-        { $match: { role: 'vendor', isDeleted: false } },
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]).maxTimeMS(2000),
-
-      // Product counts by status
-      Product.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]).maxTimeMS(2000),
-
-      // Recent orders
-      Order.find()
-        .sort('-createdAt')
-        .limit(10)
-        .select('orderNumber total status createdAt customer')
-        .populate('customer', 'firstName lastName email')
-        .lean()
-        .maxTimeMS(2000),
-
-      // Recent vendors
-      AdminVendor.find({ role: 'vendor' })
-        .sort('-createdAt')
-        .limit(10)
-        .select('firstName lastName email vendorProfile.storeName status createdAt')
-        .lean()
-        .maxTimeMS(2000),
-
-      // Top products
-      Product.find({ status: 'active' })
-        .sort('-totalSales')
-        .limit(10)
-        .select('name price totalSales totalRevenue images')
-        .lean()
-        .maxTimeMS(2000)
-    ]);
-
-    // Extract values with fallbacks
-    const revenue = revenueResult.status === 'fulfilled' ? revenueResult.value[0] : null;
-    const vendorCounts = vendorCountsResult.status === 'fulfilled' ? vendorCountsResult.value : [];
-    const productCounts = productCountsResult.status === 'fulfilled' ? productCountsResult.value : [];
-    const recentOrders = recentOrdersResult.status === 'fulfilled' ? recentOrdersResult.value : [];
-    const recentVendors = recentVendorsResult.status === 'fulfilled' ? recentVendorsResult.value : [];
-    const topProducts = topProductsResult.status === 'fulfilled' ? topProductsResult.value : [];
-
-    // Format the response
-    const result = {
-      overview: {
-        totalVendors: vendorCounts.reduce((acc, curr) => acc + curr.count, 0),
-        totalProducts: productCounts.reduce((acc, curr) => acc + curr.count, 0),
-        totalOrders: revenue?.totalOrders || 0,
-        totalRevenue: revenue?.totalRevenue || 0,
-        averageOrderValue: revenue?.averageOrderValue || 0,
-        totalCommission: revenue?.totalCommission || 0,
-        conversionRate: 3.2
-      },
-      vendorStats: vendorCounts.reduce((acc, curr) => {
-        acc[curr._id] = curr.count;
-        return acc;
-      }, {}),
-      productStats: productCounts.reduce((acc, curr) => {
-        acc[curr._id] = curr.count;
-        return acc;
-      }, {}),
-      recentOrders,
-      recentVendors,
-      topProducts,
-      sparklines: {
-        revenue: [12000, 19000, 15000, 22000, 18000, 25000, 21000],
-        orders: [120, 190, 150, 220, 180, 250, 210]
-      },
-      metadata: {
-        generatedAt: new Date(),
-        period,
-        startDate,
-        endDate
-      }
-    };
-
-    res.status(200).json({
-      success: true,
-      data: result
-    });
-
-  } catch (error) {
-    console.error('Dashboard stats error:', error);
-    // Always return something, even on error
-    res.status(200).json({
-      success: true,
-      data: {
-        overview: {
-          totalVendors: 0,
-          totalProducts: 0,
-          totalOrders: 0,
-          totalRevenue: 0,
-          averageOrderValue: 0,
-          totalCommission: 0,
-          conversionRate: 0
-        },
-        vendorStats: {},
-        productStats: {},
-        recentOrders: [],
-        recentVendors: [],
-        topProducts: [],
-        sparklines: { revenue: [], orders: [] },
-        metadata: { generatedAt: new Date(), error: error.message }
-      }
-    });
-  }
-};
-
 /**
  * @desc    Get Revenue Analytics - OPTIMIZED
  * @route   GET /api/admin/analytics/revenue
@@ -1522,6 +1401,7 @@ export const getAuditLogs = async (req, res) => {
 // ============================================
 
 const generateAccessToken = (admin) => {
+  
   return jwt.sign(
     {
       id: admin._id,
@@ -1593,7 +1473,6 @@ export default {
   updateAdmin,
   deleteAdmin,
   bulkUpdateAdmins,
-  getDashboardStats,
   getRevenueAnalytics,
   getVendorsSummary,
   getSystemSettings,

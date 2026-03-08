@@ -423,28 +423,16 @@ router.post('/cleanup', authorize('admin', 'super_admin'), async (req, res) => {
  */
 router.get('/stats', authorize('admin', 'super_admin'), async (req, res) => {
   try {
-    // You can implement this in your service if needed
-    const stats = await Notification.aggregate([
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          unread: { $sum: { $cond: [{ $eq: ['$isRead', false] }, 1, 0] } },
-          archived: { $sum: { $cond: [{ $eq: ['$isArchived', true] }, 1, 0] } }
-        }
-      }
-    ]);
-
+    const stats = await notificationService.getStats();
     res.json({
       success: true,
-      data: stats[0] || { total: 0, unread: 0, archived: 0 }
+      data: stats
     });
   } catch (error) {
     console.error('❌ Get stats error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get notification stats',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Failed to get notification stats'
     });
   }
 });

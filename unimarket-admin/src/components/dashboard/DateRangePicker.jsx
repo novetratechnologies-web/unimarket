@@ -485,7 +485,7 @@ const DateRangePicker = ({
         <Calendar className="h-4 w-4 text-gray-500 mr-2" />
         <span className="text-sm text-gray-700">{formatDateRange()}</span>
         {value?.start && value?.end && (
-          <button
+          <span
             onClick={(e) => {
               e.stopPropagation()
               handleClear()
@@ -493,7 +493,7 @@ const DateRangePicker = ({
             className="ml-2 p-0.5 hover:bg-gray-200 rounded-full"
           >
             <X className="h-3 w-3 text-gray-500" />
-          </button>
+          </span>
         )}
       </button>
 

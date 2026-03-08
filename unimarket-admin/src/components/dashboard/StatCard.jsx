@@ -1,37 +1,104 @@
-import React from 'react'
+// admin/src/components/dashboard/StatCard.jsx
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { TrendingUp, TrendingDown, MoreVertical, Eye, EyeOff, Maximize2, Info } from 'lucide-react';
 
-const StatCard = ({ title, value, change, trend, icon: Icon, color, bgColor }) => {
+const StatCard = ({ 
+  id,
+  title, 
+  value, 
+  formattedValue, 
+  change, 
+  trend, 
+  icon: Icon, 
+  color, 
+  bgColor,
+  tooltip,
+  sparkline,
+  isHidden,
+  onToggle,
+  onFullscreen
+}) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  if (isHidden) return null;
+
   return (
-    <div className="card">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
-          <div className="mt-2 flex items-center">
-            {trend === 'up' ? (
-              <span className="inline-flex items-center text-green-600">
-                <svg className="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                </svg>
-                {change}
-              </span>
-            ) : (
-              <span className="inline-flex items-center text-red-600">
-                <svg className="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-                {change}
-              </span>
-            )}
-            <span className="ml-2 text-sm text-gray-500">from last month</span>
-          </div>
-        </div>
-        <div className={`p-3 rounded-lg ${bgColor}`}>
-          <Icon className={`h-6 w-6 ${color}`} />
+    <motion.div
+      whileHover={{ y: -4 }}
+      className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm hover:shadow-xl transition-all relative group"
+    >
+      {/* Card Actions */}
+      <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={onFullscreen}
+          className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+          title="Expand"
+        >
+          <Maximize2 className="h-4 w-4 text-gray-400" />
+        </button>
+        <button
+          onClick={onToggle}
+          className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+          title="Hide"
+        >
+          <EyeOff className="h-4 w-4 text-gray-400" />
+        </button>
+        <div className="relative">
+          <button
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <Info className="h-4 w-4 text-gray-400" />
+          </button>
+          {showTooltip && (
+            <div className="absolute right-0 mt-2 w-48 bg-gray-900 text-white text-xs rounded-lg p-2 z-10">
+              {tooltip}
+            </div>
+          )}
         </div>
       </div>
-    </div>
-  )
-}
 
-export default StatCard
+      {/* Icon */}
+      <div className={`h-12 w-12 ${bgColor} rounded-xl flex items-center justify-center mb-4`}>
+        <Icon className={`h-6 w-6 ${color}`} />
+      </div>
+
+      {/* Value */}
+      <div className="text-2xl font-bold text-gray-900 mb-1">{formattedValue}</div>
+      
+      {/* Title */}
+      <div className="text-sm text-gray-600 mb-3">{title}</div>
+
+      {/* Trend & Sparkline */}
+      <div className="flex items-center justify-between">
+        <div className={`flex items-center gap-1 text-sm font-medium ${
+          trend === 'up' ? 'text-green-600' : 'text-red-600'
+        }`}>
+          {trend === 'up' ? (
+            <TrendingUp className="h-4 w-4" />
+          ) : (
+            <TrendingDown className="h-4 w-4" />
+          )}
+          <span>{trend === 'up' ? '+' : ''}{change}%</span>
+        </div>
+
+        {/* Sparkline (simplified) */}
+        {sparkline && sparkline.length > 0 && (
+          <div className="flex items-end gap-0.5 h-8">
+            {sparkline.slice(-7).map((value, i) => (
+              <div
+                key={i}
+                className="w-1 bg-primary-200 rounded-t"
+                style={{ height: `${(value / Math.max(...sparkline)) * 24}px` }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
+export default StatCard;

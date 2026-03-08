@@ -147,7 +147,6 @@ export const protect = async (req, res, next) => {
       token = req.cookies.accessToken;
     }
 
-
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -160,8 +159,8 @@ export const protect = async (req, res, next) => {
     let decoded;
     try {
       decoded = verifyToken(token, 'access');
+      console.log('🔍 Token decoded:', { id: decoded.id, email: decoded.email, role: decoded.role });
     } catch (verifyError) {
-      
       if (verifyError.name === 'TokenExpiredError') {
         return res.status(401).json({
           success: false,
@@ -170,7 +169,6 @@ export const protect = async (req, res, next) => {
           expired: true
         });
       }
-      
       return res.status(401).json({
         success: false,
         message: 'Invalid token',
@@ -178,93 +176,79 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    // Get user - check both AdminVendor and User models based on role
+    // Try to find user by ID first
     let user = null;
     
-    if (decoded.role === 'admin' || decoded.role === 'super_admin' || decoded.role === 'vendor') {
-      user = await AdminVendor.findById(decoded.id)
-        .select('-password -refreshToken -twoFactorAuth.secret -twoFactorAuth.backupCodes');
-
-    } else {
-      user = await User.findById(decoded.id)
-        .select('-password -refreshToken');
-
-    }
-
-
+    // Check AdminVendor collection
+    console.log('🔍 Checking AdminVendor collection for ID:', decoded.id);
+    user = await AdminVendor.findById(decoded.id)
+      .select('-password -refreshToken -twoFactorAuth.secret -twoFactorAuth.backupCodes')
+      .lean();
     
     if (user) {
+      console.log('✅ Found user in AdminVendor by ID');
+      req.user = user;
+      req.userId = user._id;
+      req.userRole = user.role || 'admin';
+      return next();
     }
 
-    if (!user) {
-
-      return res.status(401).json({
-        success: false,
-        message: 'User not found',
-        error: 'USER_NOT_FOUND'
-      });
-    }
-
-    // Check if user is active (for AdminVendor)
-    if (user.status && user.status !== 'active') {
-
-      return res.status(403).json({
-        success: false,
-        message: `Account is ${user.status}`,
-        error: 'ACCOUNT_INACTIVE'
-      });
-    }
-
-    // Check if user is active (for User model)
-    if (user.isActive === false) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account is inactive',
-        error: 'ACCOUNT_INACTIVE'
-      });
-    }
-
-    // Check if user is deleted
-    if (user.isDeleted) {
-
-      return res.status(401).json({
-        success: false,
-        message: 'Account has been deactivated',
-        error: 'ACCOUNT_DELETED'
-      });
-    }
-
-    // Check if session token is valid (for AdminVendor only)
-    if (req.headers['x-session-token'] && user.sessionTokens) {
-      const session = user.sessionTokens?.find(
-        s => s.token === req.headers['x-session-token'] && s.expiresAt > new Date()
-      );
-      
-      
-      if (!session) {
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid or expired session',
-          error: 'INVALID_SESSION'
-        });
-      }
-      
-      // Update last used
-      session.lastUsed = new Date();
-      await user.save();
-    }
-
-    // Attach user to request
-    req.user = user;
-    req.userId = user._id;
-    req.userRole = user.role || 'user';
-
-
-    next();
-  } catch (error) {
-    console.error('🔍 [protect] Unexpected error:', error);
-    console.error('🔍 [protect] Error stack:', error.stack);
+    // Check User collection
+    console.log('🔍 Checking User collection for ID:', decoded.id);
+    user = await User.findById(decoded.id)
+      .select('-password -refreshToken')
+      .lean();
     
+    if (user) {
+      console.log('✅ Found user in User by ID');
+      req.user = user;
+      req.userId = user._id;
+      req.userRole = user.role || 'user';
+      return next();
+    }
+
+    // Try by email as fallback
+    console.log('🔍 Checking by email:', decoded.email);
+    user = await AdminVendor.findOne({ email: decoded.email })
+      .select('-password -refreshToken -twoFactorAuth.secret -twoFactorAuth.backupCodes')
+      .lean();
+    
+    if (user) {
+      console.log('✅ Found user in AdminVendor by email');
+      req.user = user;
+      req.userId = user._id;
+      req.userRole = user.role || 'admin';
+      return next();
+    }
+
+    user = await User.findOne({ email: decoded.email })
+      .select('-password -refreshToken')
+      .lean();
+    
+    if (user) {
+      console.log('✅ Found user in User by email');
+      req.user = user;
+      req.userId = user._id;
+      req.userRole = user.role || 'user';
+      return next();
+    }
+
+    // If we get here, user not found in any collection
+    console.error('❌ User not found - ID:', decoded.id, 'Email:', decoded.email);
+    
+    // Debug: Check if collections exist and have data
+    const adminCount = await AdminVendor.countDocuments();
+    const userCount = await User.countDocuments();
+    console.log('📊 Collection stats - AdminVendor:', adminCount, 'User:', userCount);
+
+    return res.status(401).json({
+      success: false,
+      message: 'User not found',
+      error: 'USER_NOT_FOUND'
+    });
+
+  } catch (error) {
+    console.error('❌ Auth middleware error:', error);
     return res.status(500).json({
       success: false,
       message: 'Authentication error',
@@ -272,7 +256,6 @@ export const protect = async (req, res, next) => {
     });
   }
 };
-
 // ============================================
 // AUTHORIZATION MIDDLEWARE - FIXED with super_admin bypass
 // ============================================

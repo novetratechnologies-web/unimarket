@@ -1,10 +1,11 @@
+// routes/admin.routes.js - ADMIN ROUTES (without dashboard)
 import express from 'express';
 import { protect, authorize, permit } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { rateLimiter } from '../middleware/rateLimiter.js';
-import { auditMiddleware } from '../middleware/audit.js'; // ✅ CORRECT IMPORT
+import { auditMiddleware } from '../middleware/audit.js';
 import { cache } from '../middleware/cache.js';
-import { upload }from '../utils/upload.js';
+import { upload } from '../utils/upload.js';
 
 // Admin Controllers
 import {
@@ -25,10 +26,6 @@ import {
   updateAdmin,
   deleteAdmin,
   bulkUpdateAdmins,
-  
-  // Dashboard & Analytics
-  getDashboardStats,
-  getRevenueAnalytics,
   
   // Vendor Management (Summary)
   getVendorsSummary,
@@ -115,24 +112,19 @@ const router = express.Router();
 
 const authLimiter = rateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per window
+  max: 5,
   message: 'Too many authentication attempts, please try again later'
 });
 
 const apiLimiter = rateLimiter({
   windowMs: 60 * 1000, // 1 minute
-  max: 100 // 100 requests per minute
+  max: 100
 });
 
 // ============================================
 // HEALTH CHECK
 // ============================================
 
-/**
- * @route   GET /health
- * @desc    API Health Check
- * @access  Public
- */
 router.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
@@ -144,15 +136,13 @@ router.get('/health', (req, res) => {
 });
 
 // ============================================
-// ============================================
 // ADMIN ROUTES
-// ============================================
 // ============================================
 
 const adminRouter = express.Router();
 
 // ============================================
-// ADMIN AUTHENTICATION ROUTES
+// PUBLIC ADMIN ROUTES (NO AUTHENTICATION REQUIRED)
 // ============================================
 
 /**
@@ -168,18 +158,6 @@ adminRouter.post(
 );
 
 /**
- * @route   POST /api/admin/auth/logout
- * @desc    Admin Logout
- * @access  Private (Admin)
- */
-adminRouter.post(
-  '/auth/logout',
-  protect,
-  authorize('admin', 'super_admin'),
-  adminLogout
-);
-
-/**
  * @route   POST /api/admin/auth/refresh
  * @desc    Refresh Access Token
  * @access  Public
@@ -189,6 +167,24 @@ adminRouter.post(
   refreshAccessToken
 );
 
+// ============================================
+// PROTECTED ADMIN ROUTES (AUTHENTICATION REQUIRED)
+// ============================================
+
+// Apply protect middleware to all routes after this point
+adminRouter.use(protect);
+
+/**
+ * @route   POST /api/admin/auth/logout
+ * @desc    Admin Logout
+ * @access  Private (Admin)
+ */
+adminRouter.post(
+  '/auth/logout',
+  authorize('admin', 'super_admin'),
+  adminLogout
+);
+
 /**
  * @route   GET /api/admin/auth/me
  * @desc    Get Current Admin
@@ -196,9 +192,8 @@ adminRouter.post(
  */
 adminRouter.get(
   '/auth/me',
-  protect,
   authorize('admin', 'super_admin'),
-  cache(300), // Cache for 5 minutes
+  cache(300),
   getCurrentAdmin
 );
 
@@ -209,7 +204,6 @@ adminRouter.get(
  */
 adminRouter.post(
   '/auth/change-password',
-  protect,
   authorize('admin', 'super_admin'),
   validate(passwordChangeSchema),
   changePassword
@@ -222,7 +216,6 @@ adminRouter.post(
  */
 adminRouter.post(
   '/auth/2fa/setup',
-  protect,
   authorize('admin', 'super_admin'),
   setupTwoFactorAuth
 );
@@ -234,7 +227,6 @@ adminRouter.post(
  */
 adminRouter.post(
   '/auth/2fa/enable',
-  protect,
   authorize('admin', 'super_admin'),
   validate(twoFactorSchema),
   enableTwoFactorAuth
@@ -247,7 +239,6 @@ adminRouter.post(
  */
 adminRouter.post(
   '/auth/2fa/disable',
-  protect,
   authorize('admin', 'super_admin'),
   validate(passwordChangeSchema),
   disableTwoFactorAuth
@@ -264,10 +255,9 @@ adminRouter.post(
  */
 adminRouter.post(
   '/manage',
-  protect,
   authorize('super_admin'),
   validate(adminCreateSchema),
-  auditMiddleware('create', 'admin'), // ✅ FIXED
+  auditMiddleware('create', 'admin'),
   createAdmin
 );
 
@@ -278,10 +268,9 @@ adminRouter.post(
  */
 adminRouter.get(
   '/manage',
-  protect,
   authorize('super_admin'),
   validate(paginationSchema, 'query'),
-  cache(600), // Cache for 10 minutes
+  cache(600),
   getAllAdmins
 );
 
@@ -292,10 +281,9 @@ adminRouter.get(
  */
 adminRouter.get(
   '/manage/:id',
-  protect,
   authorize('super_admin'),
   validate(idParamSchema, 'params'),
-  cache(300), // Cache for 5 minutes
+  cache(300),
   getAdminById
 );
 
@@ -306,11 +294,10 @@ adminRouter.get(
  */
 adminRouter.put(
   '/manage/:id',
-  protect,
   authorize('super_admin'),
   validate(idParamSchema, 'params'),
   validate(adminUpdateSchema),
-  auditMiddleware('update', 'admin'), // ✅ FIXED
+  auditMiddleware('update', 'admin'),
   updateAdmin
 );
 
@@ -321,10 +308,9 @@ adminRouter.put(
  */
 adminRouter.delete(
   '/manage/:id',
-  protect,
   authorize('super_admin'),
   validate(idParamSchema, 'params'),
-  auditMiddleware('delete', 'admin'), // ✅ FIXED
+  auditMiddleware('delete', 'admin'),
   deleteAdmin
 );
 
@@ -335,43 +321,10 @@ adminRouter.delete(
  */
 adminRouter.post(
   '/manage/bulk',
-  protect,
   authorize('super_admin'),
   validate(bulkActionSchema),
-  auditMiddleware('bulk_update', 'admin'), // ✅ FIXED
+  auditMiddleware('bulk_update', 'admin'),
   bulkUpdateAdmins
-);
-
-// ============================================
-// ADMIN DASHBOARD & ANALYTICS ROUTES
-// ============================================
-
-/**
- * @route   GET /api/admin/dashboard
- * @desc    Get Dashboard Stats
- * @access  Private (Admin)
- */
-adminRouter.get(
-  '/dashboard',
-  protect,
-  authorize('admin', 'super_admin'),
-  permit('view_analytics', 'dashboard.view'),
-  cache(300), // Cache for 5 minutes
-  getDashboardStats
-);
-
-/**
- * @route   GET /api/admin/analytics/revenue
- * @desc    Get Revenue Analytics
- * @access  Private (Admin)
- */
-adminRouter.get(
-  '/analytics/revenue',
-  protect,
-  authorize('admin', 'super_admin'),
-  permit('view_analytics', 'reports.generate'),
-  cache(600), // Cache for 10 minutes
-  getRevenueAnalytics
 );
 
 // ============================================
@@ -385,11 +338,10 @@ adminRouter.get(
  */
 adminRouter.get(
   '/vendors',
-  protect,
   authorize('admin', 'super_admin'),
   permit('vendors.view'),
   validate(paginationSchema, 'query'),
-  cache(300), // Cache for 5 minutes
+  cache(300),
   getVendorsSummary
 );
 
@@ -404,10 +356,9 @@ adminRouter.get(
  */
 adminRouter.get(
   '/settings',
-  protect,
   authorize('super_admin'),
   permit('settings.view'),
-  cache(600), // Cache for 10 minutes
+  cache(600),
   getSystemSettings
 );
 
@@ -418,10 +369,9 @@ adminRouter.get(
  */
 adminRouter.put(
   '/settings',
-  protect,
   authorize('super_admin'),
   permit('settings.edit'),
-  auditMiddleware('update', 'settings'), // ✅ FIXED
+  auditMiddleware('update', 'settings'),
   updateSystemSettings
 );
 
@@ -436,11 +386,10 @@ adminRouter.put(
  */
 adminRouter.get(
   '/audit-logs',
-  protect,
   authorize('super_admin'),
   permit('audit.trail'),
   validate(paginationSchema, 'query'),
-  cache(120), // Cache for 2 minutes
+  cache(120),
   getAuditLogs
 );
 
@@ -448,15 +397,13 @@ adminRouter.get(
 router.use('/', apiLimiter, adminRouter);
 
 // ============================================
-// ============================================
 // VENDOR ROUTES
-// ============================================
 // ============================================
 
 const vendorRouter = express.Router();
 
 // ============================================
-// VENDOR AUTHENTICATION ROUTES
+// PUBLIC VENDOR ROUTES (NO AUTHENTICATION REQUIRED)
 // ============================================
 
 /**
@@ -497,6 +444,13 @@ vendorRouter.get(
   verifyVendorEmail
 );
 
+// ============================================
+// PROTECTED VENDOR ROUTES (AUTHENTICATION REQUIRED)
+// ============================================
+
+// Apply protect middleware to all routes after this point
+vendorRouter.use(protect);
+
 /**
  * @route   POST /api/vendor/auth/logout
  * @desc    Vendor Logout
@@ -504,7 +458,6 @@ vendorRouter.get(
  */
 vendorRouter.post(
   '/auth/logout',
-  protect,
   authorize('vendor'),
   vendorLogout
 );
@@ -520,9 +473,8 @@ vendorRouter.post(
  */
 vendorRouter.get(
   '/profile',
-  protect,
   authorize('vendor'),
-  cache(300), // Cache for 5 minutes
+  cache(300),
   getVendorProfile
 );
 
@@ -533,14 +485,13 @@ vendorRouter.get(
  */
 vendorRouter.put(
   '/profile',
-  protect,
   authorize('vendor'),
   upload.fields([
     { name: 'logo', maxCount: 1 },
     { name: 'banner', maxCount: 1 }
   ]),
   validate(vendorProfileSchema),
-  auditMiddleware('update', 'vendor'), // ✅ FIXED
+  auditMiddleware('update', 'vendor'),
   updateVendorProfile
 );
 
@@ -551,10 +502,9 @@ vendorRouter.put(
  */
 vendorRouter.post(
   '/profile/address',
-  protect,
   authorize('vendor'),
   validate(addressSchema),
-  auditMiddleware('create', 'address'), // ✅ FIXED
+  auditMiddleware('create', 'address'),
   addStoreAddress
 );
 
@@ -565,7 +515,6 @@ vendorRouter.post(
  */
 vendorRouter.put(
   '/profile/social',
-  protect,
   authorize('vendor'),
   updateSocialMedia
 );
@@ -577,10 +526,9 @@ vendorRouter.put(
  */
 vendorRouter.put(
   '/profile/bank',
-  protect,
   authorize('vendor'),
   validate(bankDetailsSchema),
-  auditMiddleware('update', 'bank_details'), // ✅ FIXED (removed 'warning' parameter)
+  auditMiddleware('update', 'bank_details'),
   updateBankDetails
 );
 
@@ -595,11 +543,10 @@ vendorRouter.put(
  */
 vendorRouter.post(
   '/products',
-  protect,
   authorize('vendor'),
-  upload.array('images', 10), // Max 10 images
+  upload.array('images', 10),
   validate(productCreateSchema),
-  auditMiddleware('create', 'product'), // ✅ FIXED
+  auditMiddleware('create', 'product'),
   createProduct
 );
 
@@ -610,10 +557,9 @@ vendorRouter.post(
  */
 vendorRouter.get(
   '/products',
-  protect,
   authorize('vendor'),
   validate(paginationSchema, 'query'),
-  cache(120), // Cache for 2 minutes
+  cache(120),
   getVendorProducts
 );
 
@@ -624,12 +570,11 @@ vendorRouter.get(
  */
 vendorRouter.put(
   '/products/:id',
-  protect,
   authorize('vendor'),
   validate(idParamSchema, 'params'),
   upload.array('newImages', 5),
   validate(productUpdateSchema),
-  auditMiddleware('update', 'product'), // ✅ FIXED
+  auditMiddleware('update', 'product'),
   updateProduct
 );
 
@@ -640,10 +585,9 @@ vendorRouter.put(
  */
 vendorRouter.delete(
   '/products/:id',
-  protect,
   authorize('vendor'),
   validate(idParamSchema, 'params'),
-  auditMiddleware('delete', 'product'), // ✅ FIXED
+  auditMiddleware('delete', 'product'),
   deleteProduct
 );
 
@@ -654,10 +598,9 @@ vendorRouter.delete(
  */
 vendorRouter.post(
   '/products/bulk',
-  protect,
   authorize('vendor'),
   validate(bulkActionSchema),
-  auditMiddleware('bulk_update', 'product'), // ✅ FIXED
+  auditMiddleware('bulk_update', 'product'),
   bulkUpdateProducts
 );
 
@@ -672,10 +615,9 @@ vendorRouter.post(
  */
 vendorRouter.get(
   '/orders',
-  protect,
   authorize('vendor'),
   validate(paginationSchema, 'query'),
-  cache(60), // Cache for 1 minute
+  cache(60),
   getVendorOrders
 );
 
@@ -686,10 +628,9 @@ vendorRouter.get(
  */
 vendorRouter.get(
   '/orders/:id',
-  protect,
   authorize('vendor'),
   validate(idParamSchema, 'params'),
-  cache(120), // Cache for 2 minutes
+  cache(120),
   getVendorOrder
 );
 
@@ -700,11 +641,10 @@ vendorRouter.get(
  */
 vendorRouter.put(
   '/orders/:id/status',
-  protect,
   authorize('vendor'),
   validate(idParamSchema, 'params'),
   validate(orderStatusSchema),
-  auditMiddleware('update', 'order'), // ✅ FIXED
+  auditMiddleware('update', 'order'),
   updateOrderStatus
 );
 
@@ -715,11 +655,10 @@ vendorRouter.put(
  */
 vendorRouter.post(
   '/orders/:id/refund',
-  protect,
   authorize('vendor'),
   validate(idParamSchema, 'params'),
   validate(refundSchema),
-  auditMiddleware('refund', 'order'), // ✅ FIXED (removed 'warning' parameter)
+  auditMiddleware('refund', 'order'),
   processRefund
 );
 
@@ -734,10 +673,9 @@ vendorRouter.post(
  */
 vendorRouter.get(
   '/payouts',
-  protect,
   authorize('vendor'),
   validate(paginationSchema, 'query'),
-  cache(300), // Cache for 5 minutes
+  cache(300),
   getPayoutHistory
 );
 
@@ -748,9 +686,8 @@ vendorRouter.get(
  */
 vendorRouter.get(
   '/earnings',
-  protect,
   authorize('vendor'),
-  cache(300), // Cache for 5 minutes
+  cache(300),
   getEarningsSummary
 );
 
@@ -765,9 +702,8 @@ vendorRouter.get(
  */
 vendorRouter.get(
   '/dashboard',
-  protect,
   authorize('vendor'),
-  cache(120), // Cache for 2 minutes
+  cache(120),
   getVendorDashboard
 );
 
@@ -782,10 +718,9 @@ vendorRouter.get(
  */
 vendorRouter.post(
   '/documents',
-  protect,
   authorize('vendor'),
-  upload.array('documents', 5), // Max 5 documents
-  auditMiddleware('create', 'document'), // ✅ FIXED
+  upload.array('documents', 5),
+  auditMiddleware('create', 'document'),
   uploadDocuments
 );
 
@@ -796,9 +731,8 @@ vendorRouter.post(
  */
 vendorRouter.get(
   '/verification-status',
-  protect,
   authorize('vendor'),
-  cache(600), // Cache for 10 minutes
+  cache(600),
   getVerificationStatus
 );
 
@@ -806,14 +740,11 @@ vendorRouter.get(
 router.use('/vendor', apiLimiter, vendorRouter);
 
 // ============================================
-// ============================================
 // COMMON/OPEN ROUTES
-// ============================================
 // ============================================
 
 const openRouter = express.Router();
 
-// ✅ FIXED: Added missing Category and Product imports
 import Category from '../models/Category.cjs';
 import Product from '../models/Product.js';
 
@@ -824,7 +755,7 @@ import Product from '../models/Product.js';
  */
 openRouter.get(
   '/categories',
-  cache(3600), // Cache for 1 hour
+  cache(3600),
   async (req, res) => {
     try {
       const categories = await Category.find({ isActive: true })
@@ -844,7 +775,7 @@ openRouter.get(
  */
 openRouter.get(
   '/products/featured',
-  cache(1800), // Cache for 30 minutes
+  cache(1800),
   async (req, res) => {
     try {
       const products = await Product.find({ 
@@ -867,28 +798,20 @@ openRouter.get(
 router.use('/public', openRouter);
 
 // ============================================
-// ============================================
-// API DOCUMENTATION ROUTE
-// ============================================
+// API DOCUMENTATION
 // ============================================
 
-/**
- * @route   GET /api
- * @desc    API Documentation
- * @access  Public
- */
 router.get('/', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'E-Commerce Admin & Vendor API',
-    documentation: `${process.env.API_DOCS_URL || '/api-docs'}`,
+    message: 'Admin & Vendor API',
     version: process.env.API_VERSION || '1.0.0',
+    documentation: `${process.env.API_DOCS_URL || '/api-docs'}`,
     endpoints: {
       admin: {
         base: '/api/admin',
         auth: ['POST /auth/login', 'POST /auth/logout', 'POST /auth/refresh', 'GET /auth/me'],
         management: ['GET /manage', 'POST /manage', 'PUT /manage/:id', 'DELETE /manage/:id'],
-        dashboard: ['GET /dashboard', 'GET /analytics/revenue'],
         vendors: ['GET /vendors'],
         settings: ['GET /settings', 'PUT /settings'],
         audit: ['GET /audit-logs']
@@ -912,20 +835,25 @@ router.get('/', (req, res) => {
   });
 });
 
-// OR with named parameter (best practice)
+// ============================================
+// 404 HANDLER
+// ============================================
+
 router.use('/*path', (req, res) => {
   res.status(404).json({
     success: false,
     message: `Cannot ${req.method} ${req.originalUrl}`,
-    error: 'ROUTE_NOT_FOUND',
-    path: req.params.path // Optional: capture the path
+    error: 'ROUTE_NOT_FOUND'
   });
 });
 
-// Global error handler
+// ============================================
+// GLOBAL ERROR HANDLER
+// ============================================
+
 router.use((err, req, res, next) => {
-  
-  // Handle specific error types
+  console.error('❌ Route Error:', err);
+
   if (err.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
@@ -934,7 +862,7 @@ router.use((err, req, res, next) => {
     });
   }
   
-  if (err.name === 'UnauthorizedError') {
+  if (err.name === 'UnauthorizedError' || err.name === 'JsonWebTokenError') {
     return res.status(401).json({
       success: false,
       message: 'Invalid or expired token',
@@ -965,7 +893,6 @@ router.use((err, req, res, next) => {
     });
   }
   
-  // Default error
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal Server Error',
@@ -973,5 +900,5 @@ router.use((err, req, res, next) => {
   });
 });
 
-export default router;   
-export { vendorRouter };    
+export default router; 
+export { vendorRouter };

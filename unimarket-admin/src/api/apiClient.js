@@ -235,73 +235,47 @@ apiClient.interceptors.response.use(
     }
     
     // Handle 401 - Token refresh
-    if (error.response?.status === 401 && !originalRequest._retry && 
-        !originalRequest.url.includes('/auth/refresh')) { // Prevent refresh loop
-      
-      console.log('🔄 Token expired, attempting refresh...');
-      originalRequest._retry = true;
-      
-      try {
-        // IMPORTANT: Don't use apiClient for refresh - create a new axios instance
-        // to avoid infinite loops with the interceptor
-        const refreshResponse = await axios.post(
-          `${API_BASE}/admin/auth/refresh`,
-          {}, // Empty body - cookies handle the refresh token
-          { 
-            withCredentials: true,
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-        
-        console.log('🔄 Refresh response:', refreshResponse.data);
-        
-        // Handle different response formats
-        const responseData = refreshResponse.data;
-        const newAccessToken = responseData.accessToken || 
-                               responseData.token || 
-                               responseData.data?.accessToken;
-        
-        if (newAccessToken) {
-          console.log('✅ New access token received');
-          
-          // Save the new token
-          tokenManager.setTokens(
-            newAccessToken, 
-            responseData.refreshToken || tokenManager.getRefreshToken()
-          );
-          
-          // Update authorization header for retry
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          
-          // Retry original request
-          return apiClient(originalRequest);
-        } else {
-          console.error('❌ No token in refresh response:', responseData);
-          throw new Error('No access token in refresh response');
-        }
-      } catch (refreshError) {
-        console.error('❌ Token refresh failed:', refreshError);
-        
-        // Clear auth and redirect to login
-        tokenManager.clearTokens();
-        tokenManager.clearUser();
-        
-        // Only redirect if not already on login page
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login?session=expired';
-        }
-        
-        return Promise.reject({
-          success: false,
-          message: 'Session expired',
-          code: 'SESSION_EXPIRED',
-          data: null
-        });
-      }
-    }
+// In the response interceptor, right before the refresh attempt
+if (error.response?.status === 401 && !originalRequest._retry && 
+    !originalRequest.url.includes('/auth/refresh')) {
+  
+  console.log('🔄 Token expired, attempting refresh...');
+  
+  // Log what tokens we have
+  const currentAccessToken = tokenManager.getAccessToken();
+  const currentRefreshToken = tokenManager.getRefreshToken();
+  console.log('📍 Current access token present:', !!currentAccessToken);
+  console.log('📍 Current refresh token present:', !!currentRefreshToken);
+  console.log('📍 Refresh token (first 20 chars):', currentRefreshToken?.substring(0, 20) + '...');
+  
+  originalRequest._retry = true;
+  
+  try {
+    // Log the refresh request
+    console.log('📤 Sending refresh request to:', `${API_BASE}/admin/auth/refresh`);
     
+    const refreshResponse = await axios.post(
+      `${API_BASE}/admin/auth/refresh`,
+      { refreshToken: currentRefreshToken }, // Send the token in body
+      { 
+        withCredentials: true,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log('🔄 Refresh response:', refreshResponse.data);
+    // ... rest of code
+  } catch (refreshError) {
+    console.error('❌ Refresh error details:', {
+      status: refreshError.response?.status,
+      data: refreshError.response?.data,
+      message: refreshError.message
+    });
+    // ... error handling
+  }
+}
     // For all other errors, reject with formatted error
     const errorResponse = {
       success: false,

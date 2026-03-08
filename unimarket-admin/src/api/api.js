@@ -1,11 +1,13 @@
-// admin/src/api/index.js - MAIN API EXPORT
+// admin/src/api/index.js - MAIN API EXPORT (UPDATED)
 import apiClient, { apiCall, tokenManager } from './apiClient';
 import adminAPI from './admin';
+import dashboardAPI from './dashboard';
 import activityAPI from './activity';
 import categoryAPI from './categories';
 import ordersAPI from './orders';
 import customersAPI from './customers';
-import productsAPI from './products'; // Import the new products module
+import productsAPI from './products';
+import notificationsAPI from './notifications'; // ✅ Import notifications API
 
 // ============================================
 // COMBINED API EXPORT
@@ -26,35 +28,19 @@ export const api = {
     refresh: () => api.post('/admin/auth/refresh'),
   },
 
-  // Notifications API
-  notifications: {
-    getAll: (params) => api.get('/notifications', { params }),
-    getUnreadCount: () => api.get('/notifications/unread-count'),
-    getById: (id) => api.get(`/notifications/${id}`),
-    markAsRead: (id) => api.patch(`/notifications/${id}/read`),
-    markAllAsRead: () => api.post('/notifications/mark-all-read'),
-    markMultipleAsRead: (ids) => api.post('/notifications/mark-read', { ids }),
-    archive: (id) => api.patch(`/notifications/${id}/archive`),
-    restore: (id) => api.patch(`/notifications/${id}/restore`),
-    delete: (id) => api.delete(`/notifications/${id}`),
-    permanentDelete: (id) => api.delete(`/notifications/${id}/permanent`),
-    clearAll: () => api.delete('/notifications/clear-all'),
-    getStats: () => api.get('/notifications/stats'),
-    cleanup: (daysToKeep) => api.post('/notifications/cleanup', { daysToKeep }),
-    sendTest: (data) => api.post('/notifications/test', data)
-  },
+  // ✅ Notifications API
+  notifications: notificationsAPI,
 
   // Admin Modules
   admin: adminAPI,
+  dashboard: dashboardAPI,
   activities: activityAPI,
   categories: categoryAPI,
   orders: ordersAPI,
   customers: customersAPI,
-  
-  // ✅ PRODUCTS MODULE - Now separated
   products: productsAPI,
 
-  // Vendor Management
+  // Vendor Management (Admin view)
   vendors: {
     all: (params) => api.get('/admin/vendors', { params }),
     get: (id) => api.get(`/admin/vendors/${id}`),
@@ -62,6 +48,68 @@ export const api = {
     verify: (id, status) => api.post(`/admin/vendors/${id}/verify`, { status }),
     payouts: (params) => api.get('/admin/vendors/payouts', { params }),
     processPayout: (id, data) => api.post(`/admin/vendors/${id}/payout`, data),
+    approve: (id) => api.post(`/admin/vendors/${id}/approve`),
+    suspend: (id, reason) => api.post(`/admin/vendors/${id}/suspend`, { reason }),
+    getPayouts: (id, params) => api.get(`/admin/vendors/${id}/payouts`, { params }),
+  },
+
+  // User Management (Admin view)
+  users: {
+    all: (params) => api.get('/admin/users', { params }),
+    getStats: (params) => api.get('/admin/users/stats', { params }),
+    get: (id) => api.get(`/admin/users/${id}`),
+    update: (id, data) => api.put(`/admin/users/${id}`, data),
+    delete: (id) => api.delete(`/admin/users/${id}`),
+  },
+
+  // Product Management (Admin view)
+  products: {
+    all: (params) => api.get('/admin/products', { params }),
+    getStats: (params) => api.get('/admin/products/stats', { params }),
+    get: (id) => api.get(`/admin/products/${id}`),
+    approve: (id) => api.post(`/admin/products/${id}/approve`),
+    reject: (id, reason) => api.post(`/admin/products/${id}/reject`, { reason }),
+    delete: (id) => api.delete(`/admin/products/${id}`),
+  },
+
+  // Order Management (Admin view)
+  orders: {
+    all: (params) => api.get('/admin/orders', { params }),
+    getStats: (params) => api.get('/admin/orders/stats', { params }),
+    get: (id) => api.get(`/admin/orders/${id}`),
+    updateStatus: (id, status) => api.put(`/admin/orders/${id}/status`, { status }),
+    refund: (id, data) => api.post(`/admin/orders/${id}/refund`, data),
+  },
+
+  // Settings Management
+  settings: {
+    get: () => api.get('/admin/settings'),
+    update: (data) => api.put('/admin/settings', data),
+    getEmail: () => api.get('/admin/settings/email'),
+    updateEmail: (data) => api.put('/admin/settings/email', data),
+    getPayment: () => api.get('/admin/settings/payment'),
+    updatePayment: (data) => api.put('/admin/settings/payment', data),
+  },
+
+  // Audit Logs
+  audit: {
+    logs: (params) => api.get('/admin/audit-logs', { params }),
+    get: (id) => api.get(`/admin/audit-logs/${id}`),
+    export: (data) => api.post('/admin/audit-logs/export', data),
+  },
+
+  // Profile (Current Admin)
+  profile: {
+    get: () => api.get('/admin/auth/me'),
+    update: (data) => api.put('/admin/manage/me', data),
+    uploadAvatar: (formData) => api.post('/admin/profile/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    getActivity: (params) => api.get('/admin/profile/activity', { params }),
+    getSecurity: () => api.get('/admin/profile/security'),
+    getApiKeys: () => api.get('/admin/profile/api-keys'),
+    revokeApiKey: (keyId) => api.delete(`/admin/profile/api-keys/${keyId}`),
+    generateApiKey: (name) => api.post('/admin/profile/api-keys', { name }),
   },
 
   // Payout Management
@@ -106,7 +154,6 @@ export const api = {
   },
 
   isAuthenticated: () => !!tokenManager.getAccessToken(),
-
   getCurrentUser: () => tokenManager.getUser()
 };
 

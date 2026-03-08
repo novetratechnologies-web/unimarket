@@ -27,7 +27,7 @@ import { formatDistanceToNow, subDays } from 'date-fns';
 
 const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
   // ============================================
-  // FETCH CUSTOMER STATS FROM BACKEND
+  // FETCH CUSTOMER STATS FROM DASHBOARD API
   // ============================================
   const { 
     data: stats,
@@ -35,9 +35,9 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
     error,
     refetch
   } = useQuery({
-    queryKey: ['customers', 'stats', timeRange, startDate, endDate],
+    queryKey: ['dashboard', 'customers', 'stats', timeRange, startDate, endDate],
     queryFn: async () => {
-      console.log('📡 Fetching customer stats from backend...');
+      console.log('📡 Fetching customer stats from dashboard API...');
       
       // Build query params
       const params = {
@@ -47,8 +47,8 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
       };
       
       try {
-        // ✅ FIXED: Use the customers.getStats method properly
-        const response = await api.customers.getStats(params);
+        // ✅ FIXED: Use dashboard.getUserStats() instead of customers.getStats()
+        const response = await api.dashboard.getUserStats(params);
         console.log('✅ Customer stats received:', response);
         
         // Handle different response structures
@@ -68,10 +68,11 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
         // If endpoint doesn't exist, try alternative endpoint
         try {
           console.log('📡 Trying alternative endpoint...');
-          const altResponse = await api.customers.getAll({ limit: 1 });
+          // ✅ FIXED: Use dashboard.getDashboardUsers() instead of customers.getAll()
+          const altResponse = await api.dashboard.getDashboardUsers({ limit: 1 });
           console.log('✅ Alternative response:', altResponse);
           
-          // If we can get customers, return empty stats but not error
+          // If we can get users, return empty stats but not error
           return {};
         } catch (altErr) {
           console.error('❌ Alternative also failed:', altErr);
@@ -88,7 +89,7 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
   // FETCH CUSTOMER LIST FOR METRICS
   // ============================================
   const { data: customers = [] } = useQuery({
-    queryKey: ['customers', 'list', timeRange],
+    queryKey: ['dashboard', 'customers', 'list', timeRange],
     queryFn: async () => {
       try {
         const params = {
@@ -97,9 +98,10 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
           ...(endDate && { createdBefore: endDate })
         };
         
-        const response = await api.customers.getAll(params);
+        // ✅ FIXED: Use dashboard.getDashboardUsers() instead of customers.getAll()
+        const response = await api.dashboard.getDashboardUsers(params);
         
-        // Extract customers array from response
+        // Extract users array from response
         if (response?.data?.users) {
           return response.data.users;
         } else if (response?.data && Array.isArray(response.data)) {
@@ -108,6 +110,8 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
           return response;
         } else if (response?.data?.data && Array.isArray(response.data.data)) {
           return response.data.data;
+        } else if (response?.users && Array.isArray(response.users)) {
+          return response.users;
         }
         return [];
       } catch (err) {
@@ -123,16 +127,17 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
   // FETCH RECENT CUSTOMER ACTIVITY
   // ============================================
   const { data: recentActivity = [] } = useQuery({
-    queryKey: ['customers', 'recent', timeRange],
+    queryKey: ['dashboard', 'customers', 'recent', timeRange],
     queryFn: async () => {
       try {
-        const response = await api.customers.getAll({ 
+        // ✅ FIXED: Use dashboard.getDashboardUsers() instead of customers.getAll()
+        const response = await api.dashboard.getDashboardUsers({ 
           limit: 5,
           sortBy: 'lastActive',
           sortOrder: 'desc'
         });
         
-        // Extract customers from response
+        // Extract users from response
         if (response?.data?.users) {
           return response.data.users;
         } else if (response?.data && Array.isArray(response.data)) {
@@ -141,6 +146,8 @@ const CustomerInsights = ({ timeRange = 'last30', startDate, endDate }) => {
           return response;
         } else if (response?.data?.data && Array.isArray(response.data.data)) {
           return response.data.data;
+        } else if (response?.users && Array.isArray(response.users)) {
+          return response.users;
         }
         return [];
       } catch (err) {

@@ -83,7 +83,7 @@ const Login = () => {
     setTouched(prev => ({ ...prev, [name]: true }));
   };
 
- const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
   e.preventDefault();
   
   if (!validateForm()) {
@@ -94,10 +94,13 @@ const Login = () => {
   setIsLoading(true);
   
   try {
-    // The login function from useAuth now handles the API call
+    console.log('📤 Calling login with:', formData.email);
     const result = await login(formData);
+    console.log('📥 Login result from context:', result);
     
     if (result.success) {
+      console.log('✅ Login successful, user:', result.data);
+      
       showToast({
         title: 'Welcome back!',
         description: `Signed in as ${formData.email}`,
@@ -108,6 +111,7 @@ const Login = () => {
       // Navigate to dashboard or previous page
       navigate(from, { replace: true });
     } else {
+      console.error('❌ Login failed:', result.error);
       setErrors({ submit: result.error });
       showToast({
         title: 'Authentication failed',
@@ -117,6 +121,7 @@ const Login = () => {
       });
     }
   } catch (error) {
+    console.error('❌ Unexpected error:', error);
     const errorMessage = error.message || 'An unexpected error occurred';
     setErrors({ submit: errorMessage });
     showToast({

@@ -1,4 +1,4 @@
-// admin/src/api/admin.js - FIXED ADMIN MODULE API
+// admin/src/api/admin.js - UPDATED (without dashboard)
 import { apiCall } from './apiClient';
 
 const adminAPI = {
@@ -24,32 +24,65 @@ const adminAPI = {
     disable2FA: (password) => apiCall('POST', '/admin/auth/2fa/disable', { password }),
   },
 
-  // Dashboard
-  dashboard: {
-    getStats: (params) => apiCall('GET', '/admin/dashboard', null, { params }),
-    getRevenue: (params) => apiCall('GET', '/admin/analytics/revenue', null, { params }),
-  },
-
   // Vendors (Admin view)
   vendors: {
     getAll: (params) => apiCall('GET', '/admin/vendors', null, { params }),
+    getById: (id) => apiCall('GET', `/admin/vendors/${id}`),
+    approve: (id) => apiCall('POST', `/admin/vendors/${id}/approve`),
+    suspend: (id, reason) => apiCall('POST', `/admin/vendors/${id}/suspend`, { reason }),
+    getPayouts: (id, params) => apiCall('GET', `/admin/vendors/${id}/payouts`, null, { params }),
+    processPayout: (id, data) => apiCall('POST', `/admin/vendors/${id}/payouts`, data),
+  },
+
+  // Users (Admin view)
+  users: {
+    getAll: (params) => apiCall('GET', '/admin/users', null, { params }),
+    getStats: (params) => apiCall('GET', '/admin/users/stats', null, { params }),
+    getById: (id) => apiCall('GET', `/admin/users/${id}`),
+    update: (id, data) => apiCall('PUT', `/admin/users/${id}`, data),
+    delete: (id) => apiCall('DELETE', `/admin/users/${id}`),
+  },
+
+  // Products (Admin view)
+  products: {
+    getAll: (params) => apiCall('GET', '/admin/products', null, { params }),
+    getStats: (params) => apiCall('GET', '/admin/products/stats', null, { params }),
+    getById: (id) => apiCall('GET', `/admin/products/${id}`),
+    approve: (id) => apiCall('POST', `/admin/products/${id}/approve`),
+    reject: (id, reason) => apiCall('POST', `/admin/products/${id}/reject`, { reason }),
+    delete: (id) => apiCall('DELETE', `/admin/products/${id}`),
+  },
+
+  // Orders (Admin view)
+  orders: {
+    getAll: (params) => apiCall('GET', '/admin/orders', null, { params }),
+    getStats: (params) => apiCall('GET', '/admin/orders/stats', null, { params }),
+    getById: (id) => apiCall('GET', `/admin/orders/${id}`),
+    updateStatus: (id, status) => apiCall('PUT', `/admin/orders/${id}/status`, { status }),
+    processRefund: (id, data) => apiCall('POST', `/admin/orders/${id}/refund`, data),
   },
 
   // Settings
   settings: {
     get: () => apiCall('GET', '/admin/settings'),
     update: (data) => apiCall('PUT', '/admin/settings', data),
+    getEmail: () => apiCall('GET', '/admin/settings/email'),
+    updateEmail: (data) => apiCall('PUT', '/admin/settings/email', data),
+    getPayment: () => apiCall('GET', '/admin/settings/payment'),
+    updatePayment: (data) => apiCall('PUT', '/admin/settings/payment', data),
   },
 
   // Audit Logs
   audit: {
     getLogs: (params) => apiCall('GET', '/admin/audit-logs', null, { params }),
+    getById: (id) => apiCall('GET', `/admin/audit-logs/${id}`),
+    export: (data) => apiCall('POST', '/admin/audit-logs/export', data),
   },
 
   // Profile (Current Admin)
   profile: {
     get: () => apiCall('GET', '/admin/auth/me'),
-    update: (data) => apiCall('PUT', '/admin/manage/me', data), // We'll need to add this route
+    update: (data) => apiCall('PUT', '/admin/manage/me', data),
     uploadAvatar: (formData) => apiCall('POST', '/admin/profile/avatar', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }),

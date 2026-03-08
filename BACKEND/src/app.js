@@ -56,6 +56,7 @@ import adminRoutes, { vendorRouter } from "./routes/adminRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import adminUserRoutes from './routes/adminUserRoutes.js';
 import activityRoutes from './routes/activityRoutes.js';
+import adminDashboardRoutes from './routes/dashboard.routes.js';
 
 // Initialize logger
 const logger = createModuleLogger('App');
@@ -687,10 +688,12 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/profile', authLimiter, profileRoutes);
 
 // Admin routes
+app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/admin/users', adminUserRoutes);
 app.use('/api/admin/activities', activityRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', apiLimiter, adminRoutes);
+
 
 // Vendor routes
 app.use('/api/vendor', apiLimiter, vendorRouter);

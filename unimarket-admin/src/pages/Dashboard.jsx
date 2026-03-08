@@ -1,6 +1,4 @@
-// ============================================
-// pages/Dashboard.jsx - Complete Refactored Dashboard
-// ============================================
+// admin/src/pages/Dashboard.jsx
 import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -43,16 +41,87 @@ import {
   ChevronDown,
   MoreVertical,
   Loader2,
-  History
+  History,
+  Plus,
+  Edit,
+  Trash2,
+  Eye as ViewIcon,
+  Copy,
+  ExternalLink,
+  Home,
+  Users as UsersIcon,
+  ShoppingBag,
+  Truck,
+  CreditCard,
+  DollarSign as DollarIcon,
+  BarChart,
+  LineChart,
+  PieChart as PieChartIcon,
+  Target,
+  Award,
+  Globe,
+  Smartphone,
+  Laptop,
+  Tablet,
+  Server,
+  Database,
+  Cloud,
+  Shield as ShieldIcon,
+  Lock,
+  Unlock,
+  Key,
+  UserPlus,
+  UserMinus,
+  UserCheck,
+  Mail as MailIcon,
+  Phone,
+  MapPin,
+  Calendar as CalendarIcon,
+  Clock as ClockIcon,
+  Filter as FilterIcon,
+  SortAsc,
+  SortDesc,
+  X,
+  Menu,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown as ChevronDownIcon,
+  HelpCircle,
+  Info,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Radio,
+  ToggleLeft,
+  ToggleRight,
+  Sun,
+  Moon,
+  Monitor,
+  Volume2,
+  VolumeX,
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Upload,
+  Download as DownloadIcon,
+  Save,
+  Trash,
+  Edit as EditIcon,
+  Eye as EyeIcon,
+  EyeOff as EyeOffIcon,
+  Copy as CopyIcon,
+  ExternalLink as ExternalLinkIcon
 } from 'lucide-react';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { format, subDays, startOfDay, endOfDay, formatDistance, formatRelative } from 'date-fns';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ErrorBoundary } from 'react-error-boundary';
 
 // API & Store
 import api from '../api/api';
-import { useDashboardStore } from './stores/dashboardStore';
+import { useDashboardStore } from '../pages/stores/dashboardStore';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -61,20 +130,28 @@ import { useDebounce } from '../hooks/useDebounce';
 
 // Lazy load components for better performance
 const StatCard = lazy(() => import('../components/dashboard/StatCard'));
-const RecentOrders = lazy(() => import('../components/dashboard/RecentOrders'));
 const SalesChart = lazy(() => import('../components/dashboard/SalesChart'));
+const RecentOrders = lazy(() => import('../components/dashboard/RecentOrders'));
 const TopProducts = lazy(() => import('../components/dashboard/TopProducts'));
 const ActivityFeed = lazy(() => import('../components/dashboard/ActivityFeed'));
-const RevenueBreakdown = lazy(() => import('../components/dashboard/RevenueBreakdown'));
-const VendorPerformance = lazy(() => import('../components/dashboard/VendorPerformance'));
 const CustomerInsights = lazy(() => import('../components/dashboard/CustomerInsights'));
 const SystemHealth = lazy(() => import('../components/dashboard/SystemHealth'));
 const DateRangePicker = lazy(() => import('../components/dashboard/DateRangePicker'));
 const LoadingSkeleton = lazy(() => import('../components/LoadingSkeleton'));
 const QuickActions = lazy(() => import('../components/dashboard/QuickActions'));
 const NotificationsPanel = lazy(() => import('../components/dashboard/NotificationsPanel'));
-const WeatherWidget = lazy(() => import('../components/dashboard/WeatherWidget'));
+const RevenueBreakdown = lazy(() => import('../components/dashboard/RevenueBreakdown'));
+const VendorPerformance = lazy(() => import('../components/dashboard/VendorPerformance'));
 const GoalProgress = lazy(() => import('../components/dashboard/GoalProgress'));
+const ProductCategories = lazy(() => import('../components/dashboard/ProductCategories'));
+const TrafficSources = lazy(() => import('../components/dashboard/TrafficSources'));
+const DeviceBreakdown = lazy(() => import('../components/dashboard/DeviceBreakdown'));
+const GeographicDistribution = lazy(() => import('../components/dashboard/GeographicDistribution'));
+const PerformanceMetrics = lazy(() => import('../components/dashboard/PerformanceMetrics'));
+const RecentActivity = lazy(() => import('../components/dashboard/RecentActivity'));
+const PendingActions = lazy(() => import('../components/dashboard/PendingActions'));
+const WelcomeBanner = lazy(() => import('../components/dashboard/WelcomeBanner'));
+const QuickStats = lazy(() => import('../components/dashboard/QuickStats'));
 
 // ============================================
 // CONSTANTS
@@ -96,7 +173,10 @@ const CHART_COLORS = {
   customers: '#8B5CF6',
   products: '#F59E0B',
   refunds: '#EF4444',
-  profit: '#8B5CF6'
+  profit: '#8B5CF6',
+  sales: '#3B82F6',
+  visitors: '#8B5CF6',
+  conversion: '#10B981'
 };
 
 const ANIMATION_VARIANTS = {
@@ -152,6 +232,7 @@ const Dashboard = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [loadingError, setLoadingError] = useState(null);
+  const [selectedView, setSelectedView] = useState('overview');
   
   // Activity feed filters
   const [activityFilters, setActivityFilters] = useState({
@@ -178,7 +259,7 @@ const Dashboard = () => {
   // WEBSOCKET CONNECTION FOR REAL-TIME UPDATES
   // ============================================
   const { connectionStatus } = useWebSocket({
-    url: import.meta.env.VITE_WS_URL || 'ws://localhost:5000/ws',
+    url: import.meta.env.VITE_WS_URL || 'ws://localhost:5000',
     enabled: preferences?.enableRealtime && authVerified,
     onMessage: (data) => {
       handleWebSocketMessage(data);
@@ -235,7 +316,7 @@ const Dashboard = () => {
   }, [checkAuth, navigate, logout, user?.email]);
 
   // ============================================
-  // FETCH DASHBOARD STATS WITH TIMEOUT
+  // FETCH DASHBOARD STATS
   // ============================================
   const { 
     data: stats,
@@ -249,13 +330,13 @@ const Dashboard = () => {
       console.log('📡 Fetching dashboard stats...');
       try {
         const response = await fetchWithTimeout(
-          api.admin.dashboard({
+          api.dashboard.getStats({
             period: timeRange,
             startDate: dateRange.start.toISOString(),
             endDate: dateRange.end.toISOString()
           })
         );
-        return response;
+        return response?.data || {};
       } catch (error) {
         console.error('Stats fetch timeout/error:', error);
         setLoadingError('Failed to load dashboard stats. Retrying...');
@@ -271,233 +352,306 @@ const Dashboard = () => {
     refetchInterval: preferences?.autoRefresh ? preferences?.refreshInterval : false,
   });
 
-  // ============================================
-  // FETCH ANALYTICS DATA - WITH FALLBACK
-  // ============================================
-  const { data: analyticsData = [], isLoading: analyticsLoading } = useQuery({
-    queryKey: ['dashboard', 'analytics', timeRange, selectedMetric, dateRange.start, dateRange.end],
-    queryFn: async () => {
-      try {
-        const response = await fetchWithTimeout(
-          api.admin.analytics?.[selectedMetric]?.({
-            timeRange,
-            startDate: dateRange.start.toISOString(),
-            endDate: dateRange.end.toISOString(),
-            interval: TIME_RANGES[timeRange]?.interval || 'day'
-          })
-        );
-        return response?.data || [];
-      } catch (error) {
-        console.error('Analytics fetch error:', error);
-        return []; // Return empty array as fallback
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    enabled: authVerified && !!stats,
-    placeholderData: []
-  });
+// ============================================
+// FETCH REVENUE ANALYTICS
+// ============================================
+const { data: revenueData = [], isLoading: revenueLoading } = useQuery({
+  queryKey: ['dashboard', 'revenue', timeRange, dateRange.start, dateRange.end],
+  queryFn: async () => {
+    try {
+      const response = await fetchWithTimeout(
+        api.dashboard.getRevenue({
+          interval: TIME_RANGES[timeRange]?.interval || 'day',
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
+        })
+      );
+      // ✅ Fixed: response.data.timeline (not response?.data?.timeline)
+      return response?.data?.timeline || [];
+    } catch (error) {
+      console.error('Revenue fetch error:', error);
+      return [];
+    }
+  },
+  staleTime: 5 * 60 * 1000,
+  enabled: authVerified && !!stats,
+});
 
-  // ============================================
-  // FETCH RECENT ORDERS - WITH FALLBACK
-  // ============================================
-  const { data: recentOrders = [], isLoading: ordersLoading } = useQuery({
-    queryKey: ['dashboard', 'recentOrders', dateRange.start, dateRange.end],
-    queryFn: async () => {
-      try {
-        const response = await fetchWithTimeout(
-          api.orders.getAll({
-            limit: 10,
-            startDate: dateRange.start.toISOString(),
-            endDate: dateRange.end.toISOString()
-          })
-        );
-        return response?.data?.orders || [];
-      } catch (error) {
-        console.error('Orders fetch error:', error);
-        return []; // Return empty array as fallback
-      }
-    },
-    staleTime: 60000,
-    refetchInterval: preferences?.enableRealtime ? 30000 : false,
-    enabled: authVerified
-  });
+// ============================================
+// FETCH SALES ANALYTICS
+// ============================================
+const { data: salesData = [], isLoading: salesLoading } = useQuery({
+  queryKey: ['dashboard', 'sales', timeRange, dateRange.start, dateRange.end],
+  queryFn: async () => {
+    try {
+      const response = await fetchWithTimeout(
+        api.dashboard.getSales({
+          type: 'overview',
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
+        })
+      );
+      // ✅ Fixed: response.data.data (first data is from API wrapper, second is from controller)
+      return response?.data?.data || [];
+    } catch (error) {
+      console.error('Sales fetch error:', error);
+      return [];
+    }
+  },
+  staleTime: 5 * 60 * 1000,
+  enabled: authVerified && !!stats,
+});
 
-  // ============================================
-  // FETCH TOP PRODUCTS - WITH FALLBACK
-  // ============================================
-  const { data: topProducts = [], isLoading: productsLoading } = useQuery({
-    queryKey: ['dashboard', 'topProducts', timeRange, dateRange.start, dateRange.end],
-    queryFn: async () => {
-      try {
-        const response = await fetchWithTimeout(
-          api.products.getAll({
-            limit: 10,
-            sortBy: 'sold',
-            sortOrder: 'desc',
-            startDate: dateRange.start.toISOString(),
-            endDate: dateRange.end.toISOString()
-          })
-        );
-        return response?.data || [];
-      } catch (error) {
-        console.error('Products fetch error:', error);
-        return []; // Return empty array as fallback
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    enabled: authVerified
-  });
-
-  // ============================================
-  // FETCH VENDOR PERFORMANCE - WITH FALLBACK
-  // ============================================
-  const { data: vendorsData = [], isLoading: vendorsLoading } = useQuery({
-    queryKey: ['dashboard', 'vendors', timeRange, dateRange.start, dateRange.end],
-    queryFn: async () => {
-      try {
-        const response = await fetchWithTimeout(
-          api.vendors.all({
-            limit: 10,
-            timeRange,
-            startDate: dateRange.start.toISOString(),
-            endDate: dateRange.end.toISOString(),
-            sortBy: 'revenue'
-          })
-        );
-        return response?.data?.vendors || [];
-      } catch (error) {
-        console.error('Vendors fetch error:', error);
-        return []; // Return empty array as fallback
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    enabled: authVerified && hasPermission('vendors.view')
-  });
-
-  // ============================================
-  // FETCH CUSTOMER INSIGHTS - WITH FALLBACK
-  // ============================================
-  const { 
-    data: customerData, 
-    isLoading: customerLoading,
-    error: customerError,
-    refetch: refetchCustomers
-  } = useQuery({
-    queryKey: ['dashboard', 'customers', timeRange, dateRange.start, dateRange.end],
-    queryFn: async () => {
-      console.log('📡 Fetching customer insights...');
+// ============================================
+// FETCH RECENT ORDERS
+// ============================================
+const { data: recentOrders = [], isLoading: ordersLoading } = useQuery({
+  queryKey: ['dashboard', 'recentOrders', dateRange.start, dateRange.end],
+  queryFn: async () => {
+    try {
+      const response = await fetchWithTimeout(
+        api.dashboard.getRecentOrders({  // Use the new method
+          limit: 10,
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
+        })
+      );
       
-      try {
-        const response = await fetchWithTimeout(
-          api.customers.getStats({
-            timeRange,
-            startDate: dateRange.start.toISOString(),
-            endDate: dateRange.end.toISOString()
-          })
-        );
-        console.log('✅ Customer insights received:', response);
-        return response?.data || {};
-      } catch (err) {
-        console.error('❌ Failed to fetch customer insights:', err);
-        return {}; // Return empty object as fallback
+      console.log('📦 Recent orders response:', response);
+      
+      // Handle the response based on your backend structure
+      let ordersData = [];
+      if (response?.data?.data && Array.isArray(response.data.data)) {
+        ordersData = response.data.data;
+      } else if (response?.data && Array.isArray(response.data)) {
+        ordersData = response.data;
+      } else if (Array.isArray(response)) {
+        ordersData = response;
       }
-    },
-    staleTime: 5 * 60 * 1000,
-    enabled: authVerified && hasPermission('customers.view'),
-    retry: 2
-  });
+      
+      return ordersData;
+    } catch (error) {
+      console.error('Recent orders fetch error:', error);
+      return [];
+    }
+  },
+  staleTime: 60000,
+  refetchInterval: preferences?.enableRealtime ? 30000 : false,
+  enabled: authVerified
+});
+// ============================================
+// FETCH TOP PRODUCTS
+// ============================================
+const { data: topProducts = [], isLoading: productsLoading } = useQuery({
+  queryKey: ['dashboard', 'topProducts', timeRange, dateRange.start, dateRange.end],
+  queryFn: async () => {
+    try {
+      // ✅ Fixed: Using api.dashboard.getTopProducts() instead of api.products.getAll()
+      const response = await fetchWithTimeout(
+        api.dashboard.getTopProducts({
+          limit: 10,
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
+        })
+      );
+      // ✅ Fixed: response.data.data (depends on your API response structure)
+      return response?.data?.data || [];
+    } catch (error) {
+      console.error('Products fetch error:', error);
+      return [];
+    }
+  },
+  staleTime: 5 * 60 * 1000,
+  enabled: authVerified
+});
 
-  // ============================================
-  // FETCH SYSTEM HEALTH - WITH FALLBACK
-  // ============================================
-  const { data: systemHealth = { status: 'healthy' } } = useQuery({
-    queryKey: ['dashboard', 'systemHealth'],
-    queryFn: async () => {
-      try {
-        const response = await fetchWithTimeout(
-          api.admin.settings?.get?.()
-        );
-        return response?.data || { status: 'healthy' };
-      } catch (error) {
-        console.error('System health fetch error:', error);
-        return { status: 'healthy' }; // Return default as fallback
+// ============================================
+// FETCH CUSTOMER INSIGHTS
+// ============================================
+const { 
+  data: customerData = {}, 
+  isLoading: customerLoading,
+  error: customerError,
+  refetch: refetchCustomers
+} = useQuery({
+  queryKey: ['dashboard', 'customers', timeRange, dateRange.start, dateRange.end],
+  queryFn: async () => {
+    console.log('📡 Fetching customer insights...');
+    
+    try {
+      const response = await fetchWithTimeout(
+        api.dashboard.getUsers({
+          type: 'overview',
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
+        })
+      );
+      console.log('✅ Customer insights received:', response);
+      // ✅ Fixed: response.data.data (depends on your API response structure)
+      return response?.data?.data || {};
+    } catch (err) {
+      console.error('❌ Failed to fetch customer insights:', err);
+      return {};
+    }
+  },
+  staleTime: 5 * 60 * 1000,
+  enabled: authVerified && hasPermission('customers.view'),
+  retry: 2
+});
+
+// ============================================
+// FETCH VENDOR PERFORMANCE
+// ============================================
+const { data: vendorsData = [], isLoading: vendorsLoading } = useQuery({
+  queryKey: ['dashboard', 'vendors', timeRange, dateRange.start, dateRange.end],
+  queryFn: async () => {
+    try {
+      const response = await fetchWithTimeout(
+        api.dashboard.getVendors({
+          type: 'top',
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
+        })
+      );
+      // ✅ Fixed: response.data.data (depends on your API response structure)
+      return response?.data?.data || [];
+    } catch (error) {
+      console.error('Vendors fetch error:', error);
+      return [];
+    }
+  },
+  staleTime: 5 * 60 * 1000,
+  enabled: authVerified && hasPermission('vendors.view')
+});
+
+// ============================================
+// FETCH SYSTEM HEALTH
+// ============================================
+const { data: systemHealth = { status: 'healthy' } } = useQuery({
+  queryKey: ['dashboard', 'systemHealth'],
+  queryFn: async () => {
+    try {
+      const response = await fetchWithTimeout(
+        api.dashboard.getPerformance({
+          type: 'overview'
+        })
+      );
+      // ✅ Fixed: response.data.data (depends on your API response structure)
+      return response?.data?.data || { status: 'healthy' };
+    } catch (error) {
+      console.error('System health fetch error:', error);
+      return { status: 'healthy' };
+    }
+  },
+  staleTime: 60000,
+  refetchInterval: 60000,
+  enabled: authVerified && hasPermission('system.view')
+});
+
+// ============================================
+// FETCH PRODUCT CATEGORIES
+// ============================================
+const { data: categoriesData = [], isLoading: categoriesLoading } = useQuery({
+  queryKey: ['dashboard', 'categories'],
+  queryFn: async () => {
+    console.log('📡 Fetching categories from dashboard API...');
+    
+    try {
+      const response = await fetchWithTimeout(
+        api.dashboard.getCategories({
+          limit: 10,
+          sortBy: 'productCount',
+          sortOrder: 'desc'
+        }),
+        8000
+      );
+      
+      console.log('📦 Categories response:', response);
+      
+      // Handle response based on your API structure
+      let categories = [];
+      if (response?.data && Array.isArray(response.data)) {
+        categories = response.data;
+      } else if (response?.data?.data && Array.isArray(response.data.data)) {
+        categories = response.data.data;
+      } else if (Array.isArray(response)) {
+        categories = response;
       }
-    },
-    staleTime: 60000,
-    refetchInterval: 60000,
-    enabled: authVerified && hasPermission('system.view')
-  });
+      
+      console.log(`✅ Loaded ${categories.length} categories`);
+      return categories;
+      
+    } catch (error) {
+      console.error('❌ Categories fetch error:', error);
+      return [];
+    }
+  },
+  staleTime: 30 * 60 * 1000, // 30 minutes
+  enabled: authVerified,
+  retry: 2,
+  retryDelay: 1000
+});
 
-  // ============================================
-  // FETCH NOTIFICATIONS - FIXED with better error handling
-  // ============================================
-  const { 
-    data: notificationsData, 
-    refetch: refetchNotifications,
-    isLoading: notificationsLoading
-  } = useQuery({
-    queryKey: ['notifications', 'recent'],
-    queryFn: async () => {
-      try {
-        const response = await fetchWithTimeout(
-          api.notifications.getAll({ 
-            limit: 10,
-            unreadOnly: true
-          }),
-          5000 // Shorter timeout for notifications
-        );
-        
-        console.log('🔍 Notifications API response:', response);
-        
-        // Handle different response structures with safe fallbacks
-        let notifications = [];
-        let unreadCount = 0;
-        
-        if (response) {
-          // Case 1: Response has notifications property
-          if (response.notifications) {
-            notifications = response.notifications;
-            unreadCount = response.unreadCount || 0;
-          }
-          // Case 2: Response has data property (wrapped)
-          else if (response.data) {
-            if (Array.isArray(response.data)) {
-              notifications = response.data;
-              unreadCount = response.data.length;
-            } else {
-              notifications = response.data.notifications || [];
-              unreadCount = response.data.unreadCount || 0;
-            }
-          }
-          // Case 3: Response is the array itself
-          else if (Array.isArray(response)) {
-            notifications = response;
-            unreadCount = response.length;
-          }
+// ============================================
+// FETCH NOTIFICATIONS
+// ============================================
+const { 
+  data: notificationsData, 
+  refetch: refetchNotifications,
+  isLoading: notificationsLoading
+} = useQuery({
+  queryKey: ['notifications', 'recent'],
+  queryFn: async () => {
+    try {
+      const response = await fetchWithTimeout(
+        api.notifications.getAll({ 
+          limit: 10,
+          unreadOnly: true
+        }),
+        5000
+      );
+      
+      console.log('🔍 Notifications API response:', response);
+      
+      let notifications = [];
+      let unreadCount = 0;
+      
+      if (response) {
+        // ✅ Fixed: Handle different response structures
+        if (response.success && response.data) {
+          // Standard API wrapper
+          notifications = response.data.notifications || [];
+          unreadCount = response.data.unreadCount || 0;
+        } else if (response.notifications) {
+          // Direct notifications object
+          notifications = response.notifications;
+          unreadCount = response.unreadCount || 0;
+        } else if (Array.isArray(response)) {
+          // Array response
+          notifications = response;
+          unreadCount = response.length;
         }
-        
-        return {
-          notifications,
-          unreadCount
-        };
-      } catch (error) {
-        console.error('Failed to fetch notifications:', error);
-        // Return empty data instead of throwing
-        return { notifications: [], unreadCount: 0 };
       }
-    },
-    staleTime: 30000,
-    refetchInterval: 60000,
-    enabled: authVerified,
-    retry: 1,
-    retryDelay: 1000
-  });
+      
+      return {
+        notifications,
+        unreadCount
+      };
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+      return { notifications: [], unreadCount: 0 };
+    }
+  },
+  staleTime: 30000,
+  refetchInterval: 60000,
+  enabled: authVerified,
+  retry: 1
+});
 
-  const notifications = notificationsData?.notifications || [];
-  const unreadCount = notificationsData?.unreadCount || 0;
-
+const notifications = notificationsData?.notifications || [];
+const unreadCount = notificationsData?.unreadCount || 0;
   // ============================================
-  // SEARCH FUNCTIONALITY - WITH FALLBACK
+  // SEARCH FUNCTIONALITY
   // ============================================
   useEffect(() => {
     const performSearch = async () => {
@@ -508,13 +662,13 @@ const Dashboard = () => {
 
       try {
         const response = await fetchWithTimeout(
-          api.activities.getAll({ 
+          api.activities?.getAll?.({ 
             search: debouncedSearch, 
             limit: 5 
           }),
           3000
         );
-        setSearchResults(response?.data?.activities || []);
+        setSearchResults(response?.data || []);
         setShowSearchResults(true);
       } catch (error) {
         console.error('Search failed:', error);
@@ -533,6 +687,8 @@ const Dashboard = () => {
       case 'NEW_ORDER':
         queryClient.invalidateQueries({ queryKey: ['dashboard', 'recentOrders'] });
         queryClient.invalidateQueries({ queryKey: ['dashboard', 'stats'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'revenue'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'sales'] });
         showToast({
           title: 'New Order',
           description: `Order #${data.orderId} received`,
@@ -560,10 +716,19 @@ const Dashboard = () => {
         queryClient.invalidateQueries({ queryKey: ['activities'] });
         break;
         
+      case 'NOTIFICATION':
+        refetchNotifications();
+        showToast({
+          title: data.notification.title,
+          description: data.notification.message,
+          type: 'info'
+        });
+        break;
+        
       default:
         break;
     }
-  }, [queryClient, showToast]);
+  }, [queryClient, showToast, refetchNotifications]);
 
   // ============================================
   // HANDLERS
@@ -572,7 +737,7 @@ const Dashboard = () => {
     setIsRefreshing(true);
     setLoadingError(null);
     try {
-      await Promise.allSettled([ // Use allSettled to handle partial failures
+      await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
         queryClient.invalidateQueries({ queryKey: ['notifications'] }),
         queryClient.invalidateQueries({ queryKey: ['activities'] })
@@ -616,6 +781,7 @@ const Dashboard = () => {
           const lastMonth = new Date();
           lastMonth.setMonth(lastMonth.getMonth() - 1);
           start = startOfDay(new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1));
+          end.setDate(0); // Last day of previous month
           break;
         default:
           start = startOfDay(subDays(new Date(), config.days));
@@ -635,11 +801,12 @@ const Dashboard = () => {
       });
       
       const response = await fetchWithTimeout(
-        api.activities?.export?.({
+        api.dashboard.exportReport?.({
+          reportType: 'dashboard',
           format,
           timeRange,
-          startDate: dateRange.start,
-          endDate: dateRange.end
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
         })
       );
       
@@ -703,8 +870,8 @@ const Dashboard = () => {
   const handleActivityClick = useCallback((activity, link) => {
     if (link) {
       navigate(link);
-    } else {
-      navigate(`/admin/activities/${activity.id}`);
+    } else if (activity?.resourceId && activity?.resourceType) {
+      navigate(`/admin/${activity.resourceType}s/${activity.resourceId}`);
     }
   }, [navigate]);
 
@@ -719,124 +886,124 @@ const Dashboard = () => {
         {
           id: 'revenue',
           title: 'Total Revenue',
-          value: stats.overview?.totalRevenue || 0,
+          value: stats?.overview?.totalRevenue || 0,
           formattedValue: new Intl.NumberFormat('en-US', { 
             style: 'currency', 
             currency: 'USD', 
             notation: 'compact',
             maximumFractionDigits: 1
-          }).format(stats.overview?.totalRevenue || 0),
-          change: stats.trends?.revenue?.percentage || 0,
-          trend: stats.trends?.revenue?.direction || 'up',
+          }).format(stats?.overview?.totalRevenue || 0),
+          change: stats?.trends?.revenue?.percentage || 0,
+          trend: stats?.trends?.revenue?.direction || 'up',
           icon: DollarSign,
           color: 'from-emerald-500 to-teal-500',
           bgColor: 'bg-emerald-50',
           tooltip: 'Total revenue including all sales',
-          sparkline: stats.metrics?.revenueSparkline || []
+          sparkline: stats?.metrics?.revenueSparkline || []
         },
         {
           id: 'orders',
           title: 'Total Orders',
-          value: stats.overview?.totalOrders || 0,
+          value: stats?.overview?.totalOrders || 0,
           formattedValue: new Intl.NumberFormat('en-US', { 
             notation: 'compact' 
-          }).format(stats.overview?.totalOrders || 0),
-          change: stats.trends?.orders?.percentage || 0,
-          trend: stats.trends?.orders?.direction || 'up',
+          }).format(stats?.overview?.totalOrders || 0),
+          change: stats?.trends?.orders?.percentage || 0,
+          trend: stats?.trends?.orders?.direction || 'up',
           icon: ShoppingCart,
           color: 'from-blue-500 to-cyan-500',
           bgColor: 'bg-blue-50',
           tooltip: 'Total number of orders placed',
-          sparkline: stats.metrics?.ordersSparkline || []
+          sparkline: stats?.metrics?.ordersSparkline || []
         },
         {
           id: 'customers',
           title: 'Active Customers',
-          value: stats.overview?.activeCustomers || 0,
+          value: stats?.overview?.activeCustomers || 0,
           formattedValue: new Intl.NumberFormat('en-US', { 
             notation: 'compact' 
-          }).format(stats.overview?.activeCustomers || 0),
-          change: stats.trends?.customers?.percentage || 0,
-          trend: stats.trends?.customers?.direction || 'up',
+          }).format(stats?.overview?.activeCustomers || 0),
+          change: stats?.trends?.customers?.percentage || 0,
+          trend: stats?.trends?.customers?.direction || 'up',
           icon: Users,
           color: 'from-purple-500 to-pink-500',
           bgColor: 'bg-purple-50',
           tooltip: 'Customers who made a purchase',
-          sparkline: stats.metrics?.customersSparkline || []
+          sparkline: stats?.metrics?.customersSparkline || []
         },
         {
           id: 'conversion',
           title: 'Conversion Rate',
-          value: stats.overview?.conversionRate || 0,
-          formattedValue: `${(stats.overview?.conversionRate || 0).toFixed(1)}%`,
-          change: stats.trends?.conversion?.percentage || 0,
-          trend: stats.trends?.conversion?.direction || 'up',
+          value: stats?.overview?.conversionRate || 0,
+          formattedValue: `${(stats?.overview?.conversionRate || 0).toFixed(1)}%`,
+          change: stats?.trends?.conversion?.percentage || 0,
+          trend: stats?.trends?.conversion?.direction || 'up',
           icon: TrendingUp,
           color: 'from-orange-500 to-red-500',
           bgColor: 'bg-orange-50',
           tooltip: 'Percentage of visitors who purchase',
-          sparkline: stats.metrics?.conversionSparkline || []
+          sparkline: stats?.metrics?.conversionSparkline || []
         }
       ],
       performance: [
         {
           id: 'aov',
           title: 'Avg. Order Value',
-          value: stats.overview?.averageOrderValue || 0,
+          value: stats?.overview?.averageOrderValue || 0,
           formattedValue: new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: 'USD'
-          }).format(stats.overview?.averageOrderValue || 0),
-          change: stats.trends?.aov?.percentage || 0,
-          trend: stats.trends?.aov?.direction || 'up',
+          }).format(stats?.overview?.averageOrderValue || 0),
+          change: stats?.trends?.aov?.percentage || 0,
+          trend: stats?.trends?.aov?.direction || 'up',
           icon: Wallet,
           color: 'text-blue-600',
           bgColor: 'bg-blue-50',
-          target: stats.goals?.aov || 100,
-          progress: ((stats.overview?.averageOrderValue || 0) / (stats.goals?.aov || 100)) * 100
+          target: stats?.goals?.aov || 100,
+          progress: ((stats?.overview?.averageOrderValue || 0) / (stats?.goals?.aov || 100)) * 100
         },
         {
           id: 'profit',
           title: 'Net Profit',
-          value: stats.overview?.netProfit || 0,
+          value: stats?.overview?.netProfit || 0,
           formattedValue: new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: 'USD',
             notation: 'compact'
-          }).format(stats.overview?.netProfit || 0),
-          change: stats.trends?.profit?.percentage || 0,
-          trend: stats.trends?.profit?.direction || 'up',
+          }).format(stats?.overview?.netProfit || 0),
+          change: stats?.trends?.profit?.percentage || 0,
+          trend: stats?.trends?.profit?.direction || 'up',
           icon: TrendingUp,
           color: 'text-green-600',
           bgColor: 'bg-green-50',
-          target: stats.goals?.profit || 50000,
-          progress: ((stats.overview?.netProfit || 0) / (stats.goals?.profit || 50000)) * 100
+          target: stats?.goals?.profit || 50000,
+          progress: ((stats?.overview?.netProfit || 0) / (stats?.goals?.profit || 50000)) * 100
         },
         {
           id: 'satisfaction',
           title: 'Customer Satisfaction',
-          value: stats.overview?.satisfactionScore || 0,
-          formattedValue: `${(stats.overview?.satisfactionScore || 0).toFixed(1)}/5`,
-          change: stats.trends?.satisfaction?.percentage || 0,
-          trend: stats.trends?.satisfaction?.direction || 'up',
+          value: stats?.overview?.satisfactionScore || 0,
+          formattedValue: `${(stats?.overview?.satisfactionScore || 0).toFixed(1)}/5`,
+          change: stats?.trends?.satisfaction?.percentage || 0,
+          trend: stats?.trends?.satisfaction?.direction || 'up',
           icon: Star,
           color: 'text-yellow-600',
           bgColor: 'bg-yellow-50',
           target: 5,
-          progress: ((stats.overview?.satisfactionScore || 0) / 5) * 100
+          progress: ((stats?.overview?.satisfactionScore || 0) / 5) * 100
         },
         {
           id: 'retention',
           title: 'Retention Rate',
-          value: stats.overview?.retentionRate || 0,
-          formattedValue: `${(stats.overview?.retentionRate || 0).toFixed(1)}%`,
-          change: stats.trends?.retention?.percentage || 0,
-          trend: stats.trends?.retention?.direction || 'up',
+          value: stats?.overview?.retentionRate || 0,
+          formattedValue: `${(stats?.overview?.retentionRate || 0).toFixed(1)}%`,
+          change: stats?.trends?.retention?.percentage || 0,
+          trend: stats?.trends?.retention?.direction || 'up',
           icon: Users,
           color: 'text-purple-600',
           bgColor: 'bg-purple-50',
           target: 80,
-          progress: stats.overview?.retentionRate || 0
+          progress: stats?.overview?.retentionRate || 0
         }
       ]
     };
@@ -1005,12 +1172,46 @@ const Dashboard = () => {
               </div>
               
               <div className="flex items-center gap-3 flex-wrap">
+                {/* View Tabs */}
+                <div className="flex items-center gap-1 bg-white/10 rounded-xl p-1">
+                  <button
+                    onClick={() => setSelectedView('overview')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      selectedView === 'overview' 
+                        ? 'bg-white text-gray-900' 
+                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    Overview
+                  </button>
+                  <button
+                    onClick={() => setSelectedView('analytics')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      selectedView === 'analytics' 
+                        ? 'bg-white text-gray-900' 
+                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    Analytics
+                  </button>
+                  <button
+                    onClick={() => setSelectedView('reports')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      selectedView === 'reports' 
+                        ? 'bg-white text-gray-900' 
+                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    Reports
+                  </button>
+                </div>
+
                 {/* Search */}
                 <div className="relative hidden lg:block">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search activities..."
+                    placeholder="Search..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onFocus={() => setShowSearchResults(true)}
@@ -1032,7 +1233,7 @@ const Dashboard = () => {
                             key={result.id}
                             className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b last:border-0"
                             onClick={() => {
-                              navigate(`/admin/activities/${result.id}`);
+                              if (result.link) navigate(result.link);
                               setShowSearchResults(false);
                               setSearchQuery('');
                             }}
@@ -1041,7 +1242,7 @@ const Dashboard = () => {
                             <div>
                               <div className="text-sm font-medium text-gray-900">{result.description}</div>
                               <div className="text-xs text-gray-500">
-                                {result.userEmail} • {format(new Date(result.createdAt), 'MMM d, HH:mm')}
+                                {result.userEmail} • {formatDistance(new Date(result.createdAt), new Date(), { addSuffix: true })}
                               </div>
                             </div>
                           </button>
@@ -1090,7 +1291,9 @@ const Dashboard = () => {
                             onRefresh={refetchNotifications}
                             onNotificationClick={(notification) => {
                               setShowNotifications(false);
-                              if (notification.data?.link) {
+                              if (notification.link) {
+                                navigate(notification.link);
+                              } else if (notification.data?.link) {
                                 navigate(notification.data.link);
                               } else if (notification.resourceId && notification.resourceType) {
                                 navigate(`/admin/${notification.resourceType}s/${notification.resourceId}`);
@@ -1219,212 +1422,293 @@ const Dashboard = () => {
             <QuickActions actions={quickActions} />
           </Suspense>
 
-          {/* Stats Grid */}
-          {statsData && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {statsData.overview.map((stat, index) => (
-                <motion.div
-                  key={stat.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                >
-                  <StatCard 
-                    {...stat} 
-                    isHidden={hiddenMetrics.includes(stat.id)}
-                    onToggle={() => toggleMetric(stat.id)}
-                    onFullscreen={() => toggleWidgetFullscreen(stat.id)}
-                  />
-                </motion.div>
-              ))}
-            </div>
-          )}
-
-          {/* Goal Progress */}
-          {stats?.goals && stats.goals.length > 0 && (
+          {/* Welcome Banner for first-time users */}
+          {!stats?.overview?.totalOrders && (
             <Suspense fallback={<div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />}>
-              <GoalProgress goals={stats.goals} />
+              <WelcomeBanner user={user} />
             </Suspense>
           )}
 
-          {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main Chart */}
-            <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-6 pb-0">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                      <BarChart3 className="h-5 w-5 text-primary-600" />
-                      Analytics Overview
-                    </h3>
-                    <p className="text-gray-600 text-sm mt-1">Track your key metrics over time</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <select 
-                      value={selectedMetric}
-                      onChange={(e) => setSelectedMetric(e.target.value)}
-                      className="text-sm border border-gray-200 rounded-xl px-4 py-2.5 bg-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          {/* Main Content - Overview View */}
+          {selectedView === 'overview' && (
+            <>
+              {/* Stats Grid */}
+              {statsData && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {statsData.overview.map((stat, index) => (
+                    <motion.div
+                      key={stat.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
                     >
-                      <option value="revenue">Revenue</option>
-                      <option value="orders">Orders</option>
-                      <option value="customers">Customers</option>
-                      <option value="profit">Profit</option>
-                    </select>
-                    <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
-                      <button 
-                        onClick={() => setViewMode(LAYOUT_OPTIONS.GRID)}
-                        className={`p-2 rounded-lg transition-colors ${
-                          viewMode === LAYOUT_OPTIONS.GRID ? 'bg-white shadow-sm' : 'hover:bg-white/50'
-                        }`}
-                        title="Grid view"
-                      >
-                        <Grid className="h-4 w-4" />
-                      </button>
-                      <button 
-                        onClick={() => setViewMode(LAYOUT_OPTIONS.LIST)}
-                        className={`p-2 rounded-lg transition-colors ${
-                          viewMode === LAYOUT_OPTIONS.LIST ? 'bg-white shadow-sm' : 'hover:bg-white/50'
-                        }`}
-                        title="List view"
-                      >
-                        <List className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
+                      <StatCard 
+                        {...stat} 
+                        isHidden={hiddenMetrics.includes(stat.id)}
+                        onToggle={() => toggleMetric(stat.id)}
+                        onFullscreen={() => toggleWidgetFullscreen(stat.id)}
+                      />
+                    </motion.div>
+                  ))}
                 </div>
-              </div>
-              <div className="px-6 pb-6">
-                <Suspense fallback={<div className="h-[350px] bg-gray-100 rounded-xl animate-pulse" />}>
-                  <SalesChart 
-                    data={analyticsData} 
-                    period={timeRange}
-                    height={350}
-                    color={CHART_COLORS[selectedMetric]}
-                    loading={analyticsLoading}
-                  />
-                </Suspense>
-              </div>
-            </div>
+              )}
 
-            {/* Recent Orders */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                      <ShoppingCart className="h-5 w-5 text-primary-600" />
-                      Recent Orders
-                    </h3>
-                    <p className="text-gray-600 text-sm mt-1">Latest transactions</p>
-                  </div>
-                  <button 
-                    onClick={() => navigate('/orders')}
-                    className="text-sm font-medium text-primary-600 hover:text-primary-700 flex items-center gap-1"
-                  >
-                    View All
-                    <ArrowUpRight className="h-4 w-4" />
-                  </button>
-                </div>
-                <Suspense fallback={<div className="space-y-4"><div className="h-16 bg-gray-100 rounded-xl animate-pulse" /></div>}>
-                  <RecentOrders 
-                    orders={recentOrders} 
-                    loading={ordersLoading}
-                  />
-                </Suspense>
-              </div>
-            </div>
-          </div>
-
-          {/* Secondary Grid - Activity Feed and Top Products */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Activity Feed */}
-            <Suspense fallback={<div className="h-[500px] bg-gray-100 rounded-2xl animate-pulse" />}>
-              <ActivityFeed 
-                limit={activityLimit}
-                showViewAll={true}
-                autoRefresh={autoRefreshActivity}
-                refreshInterval={30000}
-                onActivityClick={handleActivityClick}
-                filterTypes={activityFilters.types}
-                filterCategories={activityFilters.categories}
-                filterSeverity={activityFilters.severities}
-                showFilters={showFilters}
-                className="h-full"
-              />
-            </Suspense>
-
-            {/* Top Products */}
-            <Suspense fallback={<div className="h-[500px] bg-gray-100 rounded-2xl animate-pulse" />}>
-              <TopProducts 
-                products={topProducts} 
-                loading={productsLoading}
-              />
-            </Suspense>
-          </div>
-
-          {/* Customer Insights - Full Width Section */}
-          {hasPermission('customers.view') && (
-            <div className="w-full">
-              <Suspense fallback={
-                <div className="bg-white rounded-2xl border border-gray-200 p-6">
-                  <div className="animate-pulse space-y-4">
-                    <div className="h-6 bg-gray-200 rounded w-48"></div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="h-24 bg-gray-100 rounded-xl"></div>
-                      <div className="h-24 bg-gray-100 rounded-xl"></div>
-                      <div className="h-24 bg-gray-100 rounded-xl"></div>
-                      <div className="h-24 bg-gray-100 rounded-xl"></div>
-                    </div>
-                    <div className="h-32 bg-gray-100 rounded-xl"></div>
-                  </div>
-                </div>
-              }>
-                <CustomerInsights 
-                  timeRange={timeRange}
-                  startDate={dateRange.start.toISOString()}
-                  endDate={dateRange.end.toISOString()}
-                />
+              {/* Quick Stats (smaller metrics) */}
+              <Suspense fallback={<div className="h-20 bg-gray-100 rounded-2xl animate-pulse" />}>
+                <QuickStats stats={stats} />
               </Suspense>
+
+              {/* Goal Progress */}
+              {stats?.goals && stats.goals.length > 0 && (
+                <Suspense fallback={<div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <GoalProgress goals={stats.goals} />
+                </Suspense>
+              )}
+
+              {/* Main Chart Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Main Chart */}
+                <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-6 pb-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                          <BarChart3 className="h-5 w-5 text-primary-600" />
+                          Revenue Analytics
+                        </h3>
+                        <p className="text-gray-600 text-sm mt-1">Track your revenue over time</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <select 
+                          value={selectedMetric}
+                          onChange={(e) => setSelectedMetric(e.target.value)}
+                          className="text-sm border border-gray-200 rounded-xl px-4 py-2.5 bg-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        >
+                          <option value="revenue">Revenue</option>
+                          <option value="orders">Orders</option>
+                          <option value="customers">Customers</option>
+                          <option value="profit">Profit</option>
+                        </select>
+                        <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
+                          <button 
+                            onClick={() => setViewMode(LAYOUT_OPTIONS.GRID)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              viewMode === LAYOUT_OPTIONS.GRID ? 'bg-white shadow-sm' : 'hover:bg-white/50'
+                            }`}
+                            title="Grid view"
+                          >
+                            <Grid className="h-4 w-4" />
+                          </button>
+                          <button 
+                            onClick={() => setViewMode(LAYOUT_OPTIONS.LIST)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              viewMode === LAYOUT_OPTIONS.LIST ? 'bg-white shadow-sm' : 'hover:bg-white/50'
+                            }`}
+                            title="List view"
+                          >
+                            <List className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-6 pb-6">
+                    <Suspense fallback={<div className="h-[350px] bg-gray-100 rounded-xl animate-pulse" />}>
+                      <SalesChart 
+                        data={revenueData} 
+                        period={timeRange}
+                        height={350}
+                        color={CHART_COLORS[selectedMetric]}
+                        loading={revenueLoading}
+                      />
+                    </Suspense>
+                  </div>
+                </div>
+
+                {/* Recent Orders */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                          <ShoppingCart className="h-5 w-5 text-primary-600" />
+                          Recent Orders
+                        </h3>
+                        <p className="text-gray-600 text-sm mt-1">Latest transactions</p>
+                      </div>
+                      <button 
+                        onClick={() => navigate('/orders')}
+                        className="text-sm font-medium text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                      >
+                        View All
+                        <ArrowUpRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <Suspense fallback={<div className="space-y-4"><div className="h-16 bg-gray-100 rounded-xl animate-pulse" /></div>}>
+                      <RecentOrders 
+                        orders={recentOrders} 
+                        loading={ordersLoading}
+                      />
+                    </Suspense>
+                  </div>
+                </div>
+              </div>
+
+              {/* Secondary Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Activity Feed */}
+                <Suspense fallback={<div className="h-[500px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <ActivityFeed 
+                    limit={activityLimit}
+                    showViewAll={true}
+                    autoRefresh={autoRefreshActivity}
+                    refreshInterval={30000}
+                    onActivityClick={handleActivityClick}
+                    filterTypes={activityFilters.types}
+                    filterCategories={activityFilters.categories}
+                    filterSeverity={activityFilters.severities}
+                    showFilters={showFilters}
+                    className="h-full"
+                  />
+                </Suspense>
+
+                {/* Top Products */}
+                <Suspense fallback={<div className="h-[500px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <TopProducts 
+                    products={topProducts} 
+                    loading={productsLoading}
+                  />
+                </Suspense>
+              </div>
+
+              {/* Pending Actions */}
+              <Suspense fallback={<div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />}>
+                <PendingActions stats={stats} />
+              </Suspense>
+
+              {/* Customer Insights */}
+              {hasPermission('customers.view') && (
+                <div className="w-full">
+                  <Suspense fallback={<div className="h-[400px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                    <CustomerInsights 
+                      data={customerData}
+                      loading={customerLoading}
+                      timeRange={timeRange}
+                    />
+                  </Suspense>
+                </div>
+              )}
+
+              {/* Performance Metrics */}
+              {statsData?.performance && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {statsData.performance.map((metric, index) => (
+                    <motion.div
+                      key={metric.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 + index * 0.1 }}
+                    >
+                      <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className={`h-12 w-12 ${metric.bgColor} rounded-xl flex items-center justify-center`}>
+                            <metric.icon className={`h-6 w-6 ${metric.color}`} />
+                          </div>
+                          <span className={`text-sm font-medium ${
+                            metric.trend === 'up' ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {metric.trend === 'up' ? '+' : ''}{metric.change}%
+                          </span>
+                        </div>
+                        <h4 className="text-sm text-gray-600 mb-1">{metric.title}</h4>
+                        <div className="text-2xl font-bold text-gray-900 mb-3">{metric.formattedValue}</div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-primary-600 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(metric.progress, 100)}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between mt-2 text-xs text-gray-500">
+                          <span>Target: {metric.target}{metric.title.includes('Rate') ? '%' : ''}</span>
+                          <span>{Math.min(metric.progress, 100).toFixed(0)}%</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Analytics View */}
+          {selectedView === 'analytics' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Revenue Breakdown */}
+                <Suspense fallback={<div className="h-[400px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <RevenueBreakdown data={revenueData} loading={revenueLoading} />
+                </Suspense>
+
+                {/* Product Categories */}
+                <Suspense fallback={<div className="h-[400px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <ProductCategories data={categoriesData} />
+                </Suspense>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Traffic Sources */}
+                <Suspense fallback={<div className="h-[400px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <TrafficSources />
+                </Suspense>
+
+                {/* Device Breakdown */}
+                <Suspense fallback={<div className="h-[400px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <DeviceBreakdown />
+                </Suspense>
+              </div>
+
+              {/* Geographic Distribution */}
+              <Suspense fallback={<div className="h-[400px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                <GeographicDistribution />
+              </Suspense>
+
+              {/* Vendor Performance */}
+              {hasPermission('vendors.view') && (
+                <Suspense fallback={<div className="h-[400px] bg-gray-100 rounded-2xl animate-pulse" />}>
+                  <VendorPerformance data={vendorsData} loading={vendorsLoading} />
+                </Suspense>
+              )}
             </div>
           )}
 
-          {/* Performance Metrics */}
-          {statsData?.performance && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {statsData.performance.map((metric, index) => (
-                <motion.div
-                  key={metric.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 + index * 0.1 }}
-                >
-                  <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className={`h-12 w-12 ${metric.bgColor} rounded-xl flex items-center justify-center`}>
-                        <metric.icon className={`h-6 w-6 ${metric.color}`} />
+          {/* Reports View */}
+          {selectedView === 'reports' && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-2xl border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold mb-4">Generate Reports</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[
+                    { name: 'Sales Report', icon: BarChart3, color: 'blue', description: 'Detailed sales analysis' },
+                    { name: 'Tax Report', icon: FileText, color: 'green', description: 'Tax collection summary' },
+                    { name: 'Inventory Report', icon: Package, color: 'purple', description: 'Stock level report' },
+                    { name: 'Customer Report', icon: Users, color: 'orange', description: 'Customer analytics' },
+                    { name: 'Vendor Report', icon: Store, color: 'pink', description: 'Vendor performance' },
+                    { name: 'Payout Report', icon: Wallet, color: 'indigo', description: 'Payout history' }
+                  ].map((report, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleExport('pdf')}
+                      className="p-4 border border-gray-200 rounded-xl hover:shadow-md transition-all text-left group"
+                    >
+                      <div className={`h-10 w-10 bg-${report.color}-100 rounded-lg flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+                        <report.icon className={`h-5 w-5 text-${report.color}-600`} />
                       </div>
-                      <span className={`text-sm font-medium ${
-                        metric.trend === 'up' ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {metric.trend === 'up' ? '+' : ''}{metric.change}%
-                      </span>
-                    </div>
-                    <h4 className="text-sm text-gray-600 mb-1">{metric.title}</h4>
-                    <div className="text-2xl font-bold text-gray-900 mb-3">{metric.formattedValue}</div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-primary-600 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(metric.progress, 100)}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between mt-2 text-xs text-gray-500">
-                      <span>Target: {metric.target}{metric.title.includes('Rate') ? '%' : ''}</span>
-                      <span>{Math.min(metric.progress, 100).toFixed(0)}%</span>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+                      <h4 className="font-medium text-gray-900">{report.name}</h4>
+                      <p className="text-sm text-gray-500 mt-1">{report.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1435,12 +1719,10 @@ const Dashboard = () => {
             </Suspense>
           )}
 
-          {/* Weather Widget (if enabled) */}
-          {preferences?.showWeather && (
-            <Suspense fallback={<div className="h-[100px] bg-gray-100 rounded-2xl animate-pulse" />}>
-              <WeatherWidget />
-            </Suspense>
-          )}
+          {/* Performance Metrics - Always visible */}
+          <Suspense fallback={<div className="h-[300px] bg-gray-100 rounded-2xl animate-pulse" />}>
+            <PerformanceMetrics data={stats} />
+          </Suspense>
 
           {/* Footer */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 pt-6 border-t">

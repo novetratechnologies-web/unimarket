@@ -131,92 +131,76 @@ export const AuthProvider = ({ children }) => {
   // ============================================
   // LOGIN - FIXED for your API response structure
   // ============================================
-  const login = async (credentials) => {
-    try {
-      setError(null);
-      setLoading(true);
+const login = async (credentials) => {
+  try {
+    setError(null);
+    setLoading(true);
+    
+    console.log('🔐 Login attempt for:', credentials.email);
+    const response = await api.auth.login(credentials);
+    console.log('📥 Raw API response:', response);
+    
+    if (response?.success) {
+      const responseData = response.data;
+      console.log('📦 Response data structure:', {
+        hasUser: !!responseData?.user,
+        hasAccessToken: !!responseData?.accessToken,
+        userRole: responseData?.user?.role,
+        fullData: responseData
+      });
       
-      console.log('🔐 Login attempt for:', credentials.email);
-      const response = await api.auth.login(credentials);
-      console.log('📥 Login response:', response);
+      // Your backend returns: { user, accessToken, refreshToken, sessionToken, expiresIn }
+      const { user, accessToken, refreshToken } = responseData || {};
       
-      if (response?.success) {
-        const responseData = response.data;
-        
-        if (!responseData) {
-          console.error('❌ No data in response');
-          throw new Error('No data received from server');
-        }
-        
-        // Try different response structures
-        let accessToken, refreshToken, userData;
-        
-        // Structure 1: { tokens: { access: '...', refresh: '...' }, user: {...} }
-        if (responseData.tokens) {
-          accessToken = responseData.tokens.access || responseData.tokens.token;
-          refreshToken = responseData.tokens.refresh;
-          userData = responseData.user;
-        }
-        // Structure 2: { accessToken: '...', refreshToken: '...', user: {...} }
-        else if (responseData.accessToken) {
-          accessToken = responseData.accessToken;
-          refreshToken = responseData.refreshToken;
-          userData = responseData.user;
-        }
-        // Structure 3: { token: '...', user: {...} }
-        else if (responseData.token) {
-          accessToken = responseData.token;
-          refreshToken = responseData.refreshToken;
-          userData = responseData.user;
-        }
-        // Structure 4: Data is user object, tokens in parent
-        else if (responseData.id || responseData.email) {
-          userData = responseData;
-          accessToken = response.accessToken || response.token;
-          refreshToken = response.refreshToken;
-        }
-        
-        if (accessToken && userData) {
-          console.log('✅ Login successful for:', userData.email);
-          
-          // Store tokens
-          api.token.setTokens(accessToken, refreshToken);
-          api.token.setUser(userData);
-          setUser(userData);
-          lastVerificationTimeRef.current = Date.now();
-          
-          return {
-            success: true,
-            data: userData,
-            message: 'Login successful'
-          };
-        }
-        
-        console.error('❌ Could not find tokens in response:', responseData);
-        throw new Error('Invalid response structure: tokens not found');
+      if (!accessToken || !user) {
+        console.error('❌ Missing required fields:', { 
+          hasAccessToken: !!accessToken, 
+          hasUser: !!user 
+        });
+        throw new Error('Invalid response from server');
       }
       
-      console.error('❌ Login failed:', response?.message);
-      return {
-        success: false,
-        error: response?.message || 'Login failed',
-        errors: response?.errors
-      };
+      console.log('✅ Login successful for:', user.email);
+      console.log('📍 Storing tokens...');
       
-    } catch (error) {
-      console.error('❌ Login error:', error);
-      const errorMessage = error?.message || 'Login failed';
-      setError(errorMessage);
+      // Store tokens
+      api.token.setTokens(accessToken, refreshToken);
+      api.token.setUser(user);
+      setUser(user);
+      lastVerificationTimeRef.current = Date.now();
+      
+      // Verify storage worked
+      const storedToken = api.token.getAccessToken();
+      console.log('📍 Token stored successfully:', !!storedToken);
       
       return {
-        success: false,
-        error: errorMessage,
-        errors: error?.errors
+        success: true,
+        data: user,
+        message: 'Login successful'
       };
-    } finally {
-      setLoading(false);
     }
-  };
+    
+    console.error('❌ Login failed:', response?.message);
+    return {
+      success: false,
+      error: response?.message || 'Login failed',
+      errors: response?.errors
+    };
+    
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    const errorMessage = error?.message || 'Login failed';
+    setError(errorMessage);
+    
+    return {
+      success: false,
+      error: errorMessage,
+      errors: error?.errors
+    };
+  } finally {
+    setLoading(false);
+  }
+};
 
   // ============================================
   // LOGOUT

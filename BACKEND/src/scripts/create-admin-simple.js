@@ -24,7 +24,7 @@ const createAdmin = async () => {
     console.log('✅ Connected to MongoDB');
     
     // Get credentials from command line or use defaults
-    const email = process.argv[2] || 'migoboi@gmail.com';
+    const email = process.argv[2] || 'admin@gmail.com';
     const password = process.argv[3] || 'Admin123!';
     const fullName = process.argv[4] || 'Super Admin';
     
