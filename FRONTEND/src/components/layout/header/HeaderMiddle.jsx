@@ -27,12 +27,13 @@ import {
   GraduationCap,
   Headphones,
   Phone,
-  MapPin
+  MapPin,
+  Mail
 } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
 import logo from "../../../assets/uni_logo.png";
 import MobileAccountMenu from './MobileAccountMenu';
-import Sidebar from './Sidebar'; // Import the new sidebar
+import Sidebar from './Sidebar';
 
 const HeaderMiddle = () => {
   const [search, setSearch] = useState("");
@@ -42,6 +43,7 @@ const HeaderMiddle = () => {
   const [scrolled, setScrolled] = useState(false);
   const searchRef = useRef(null);
   const accountMenuRef = useRef(null);
+  const accountButtonRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -83,17 +85,26 @@ const HeaderMiddle = () => {
     }
   };
 
-  // Close dropdowns when clicking outside
+  // Close dropdowns when clicking outside with improved detection
   useEffect(() => {
     const handleClickOutside = (event) => {
+      // Check if click is outside search
       if (searchRef.current && !searchRef.current.contains(event.target)) {
         setIsSearchFocused(false);
       }
-      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+      
+      // Check if click is outside account menu AND not on the account button
+      if (
+        accountMenuRef.current && 
+        !accountMenuRef.current.contains(event.target) &&
+        accountButtonRef.current && 
+        !accountButtonRef.current.contains(event.target)
+      ) {
         setIsAccountMenuOpen(false);
       }
     };
 
+    // Use mousedown for faster response
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -103,6 +114,18 @@ const HeaderMiddle = () => {
     setIsMobileMenuOpen(false);
     setIsAccountMenuOpen(false);
   }, [location.pathname]);
+
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isMobileMenuOpen]);
 
   const quickSearchTerms = ["Laptops", "Textbooks", "Furniture", "Electronics", "Dorm Essentials"];
 
@@ -132,7 +155,7 @@ const HeaderMiddle = () => {
       icon: <HelpCircle className="w-5 h-5" />,
       items: [
         { label: "Help Center", icon: <HelpCircle className="w-4 h-4" />, path: "/help" },
-        { label: "Contact Support", icon: <MessageSquare className="w-4 h-4" />, path: "/contact" },
+        { label: "Contact Support", icon: <Mail className="w-4 h-4" />, path: "/contact" },
         { label: "Terms & Privacy", icon: <Shield className="w-4 h-4" />, path: "/terms" },
       ]
     }
@@ -140,7 +163,7 @@ const HeaderMiddle = () => {
 
   if (loading) {
     return (
-      <div className={`bg-white border-b border-gray-100 transition-all duration-300 ${scrolled ? 'shadow-md' : 'shadow-sm'}`}>
+      <div className={`bg-white border-b border-gray-100 transition-all duration-300 sticky top-0 z-50 ${scrolled ? 'shadow-md' : 'shadow-sm'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 animate-pulse">
             <div className="flex items-center space-x-3">
@@ -163,25 +186,55 @@ const HeaderMiddle = () => {
 
   return (
     <>
-      <div className={`bg-white border-b border-gray-100 sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'shadow-md py-1' : 'shadow-sm'}`}>
-        {/* Add keyframe animations */}
-        <style jsx>{`
-          @keyframes dropdownFadeIn {
-            from {
-              opacity: 0;
-              transform: translateY(-10px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
+      {/* Add global styles for animations */}
+      <style jsx global>{`
+        @keyframes dropdownFadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
           }
-          
-          .dropdown-animation {
-            animation: dropdownFadeIn 0.2s ease-out forwards;
+          to {
+            opacity: 1;
+            transform: translateY(0);
           }
-        `}</style>
+        }
+        
+        @keyframes slideIn {
+          from {
+            transform: translateX(100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        
+        .dropdown-animation {
+          animation: dropdownFadeIn 0.2s ease-out forwards;
+        }
+        
+        .slide-in {
+          animation: slideIn 0.3s ease-out forwards;
+        }
+        
+        /* Ensure proper z-index layering */
+        .z-header {
+          z-index: 50;
+        }
+        
+        .z-dropdown {
+          z-index: 60;
+        }
+        
+        .z-sidebar {
+          z-index: 70;
+        }
+        
+        .z-modal {
+          z-index: 80;
+        }
+      `}</style>
 
+      <div className={`bg-white border-b border-gray-100 sticky top-0 z-header transition-all duration-300 ${scrolled ? 'shadow-md py-1' : 'shadow-sm'}`}>
         {/* Main Header Row */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -251,7 +304,7 @@ const HeaderMiddle = () => {
 
                 {/* Search Suggestions with animation */}
                 {isSearchFocused && search.length === 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50 dropdown-animation">
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-dropdown dropdown-animation">
                     <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-teal-50 to-cyan-50">
                       <p className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-teal-500" />
@@ -310,6 +363,7 @@ const HeaderMiddle = () => {
                 {isLoggedIn ? (
                   <>
                     <button 
+                      ref={accountButtonRef}
                       onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
                       className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-opacity-50 transition-all duration-200 hover:scale-105 active:scale-95 group"
                     >
@@ -338,10 +392,10 @@ const HeaderMiddle = () => {
                       </div>
                     </button>
 
-                    {/* Desktop Dropdown with fixed animation */}
+                    {/* Desktop Dropdown with fixed animation and higher z-index */}
                     {isAccountMenuOpen && (
                       <div 
-                        className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50"
+                        className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-dropdown"
                         style={{
                           animation: 'dropdownFadeIn 0.2s ease-out forwards',
                           transformOrigin: 'top'
@@ -459,7 +513,7 @@ const HeaderMiddle = () => {
         </div>
       </div>
 
-      {/* Mobile Account Menu - Only shows on mobile */}
+      {/* Mobile Account Menu - Always mounted, visibility controlled by isOpen prop */}
       <div className="lg:hidden">
         <MobileAccountMenu
           isOpen={isLoggedIn && isAccountMenuOpen}
@@ -470,7 +524,7 @@ const HeaderMiddle = () => {
         />
       </div>
 
-      {/* New Sidebar Component */}
+      {/* Sidebar Component with proper z-index */}
       <Sidebar 
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}

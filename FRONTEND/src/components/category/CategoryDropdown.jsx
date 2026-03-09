@@ -1,5 +1,5 @@
 // components/CategoryDropdown.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -7,100 +7,58 @@ import {
   ChevronRight, 
   Store, 
   Loader2,
-  Grid,
-  Package,
-  Star,
-  TrendingUp,
-  Award,
-  Clock,
   X,
   Sparkles,
   Zap,
   ShoppingBag,
   Gift,
   Percent,
-  Headphones,
-  Laptop,
-  Shirt,
-  Home,
-  BookOpen,
-  Dumbbell,
-  Gamepad2,
-  Coffee,
-  Watch,
-  Camera,
-  Car,
-  Heart,
-  Palette,
-  Music,
-  Smartphone,
-  ChevronLeft
+  ChevronLeft,
+  Home
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../api/index';
 
-// Modern category icons mapping
-const categoryIcons = {
-  electronics: <Laptop className="w-5 h-5" />,
-  smartphones: <Smartphone className="w-5 h-5" />,
-  computers: <Laptop className="w-5 h-5" />,
-  gaming: <Gamepad2 className="w-5 h-5" />,
-  cameras: <Camera className="w-5 h-5" />,
-  fashion: <Shirt className="w-5 h-5" />,
-  clothing: <Shirt className="w-5 h-5" />,
-  shoes: <Watch className="w-5 h-5" />,
-  accessories: <Watch className="w-5 h-5" />,
-  home: <Home className="w-5 h-5" />,
-  furniture: <Home className="w-5 h-5" />,
-  kitchen: <Coffee className="w-5 h-5" />,
-  books: <BookOpen className="w-5 h-5" />,
-  textbooks: <BookOpen className="w-5 h-5" />,
-  sports: <Dumbbell className="w-5 h-5" />,
-  fitness: <Dumbbell className="w-5 h-5" />,
-  automotive: <Car className="w-5 h-5" />,
-  toys: <Gamepad2 className="w-5 h-5" />,
-  music: <Music className="w-5 h-5" />,
-  art: <Palette className="w-5 h-5" />,
-  beauty: <Sparkles className="w-5 h-5" />,
-  health: <Heart className="w-5 h-5" />,
-  gifts: <Gift className="w-5 h-5" />,
-  deals: <Percent className="w-5 h-5" />,
-  default: <Package className="w-5 h-5" />
-};
-
 const CategoryDropdown = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeCategory, setActiveCategory] = useState(null);
   const [hoveredCategory, setHoveredCategory] = useState(null);
-  const [hoveredSubcategory, setHoveredSubcategory] = useState(null);
-  const [expandedCategories, setExpandedCategories] = useState({});
-  const [mobileView, setMobileView] = useState('main');
+  const [hoveredSubCategory, setHoveredSubCategory] = useState(null);
+  const [hoveredSubSubCategory, setHoveredSubSubCategory] = useState(null);
+  const [mobileNavStack, setMobileNavStack] = useState([]);
+  const [hoverTimeout, setHoverTimeout] = useState(null);
+  const [menuTimeout, setMenuTimeout] = useState(null);
+  
   const dropdownRef = useRef(null);
-  const timeoutRef = useRef(null);
+  const categoryRefs = useRef({});
+  const subCategoryRefs = useRef({});
+  const subSubCategoryRefs = useRef({});
 
-  // Fetch categories from backend
+  // Fetch categories from backend using tree endpoint
   const { data: categories = [], isLoading } = useQuery({
-    queryKey: ['categories', 'menu'],
+    queryKey: ['categories', 'tree'],
     queryFn: async () => {
-      console.log('📡 Fetching categories for menu...');
-      const response = await api.categories.getMenuCategories();
-      console.log('✅ Categories received:', response?.data);
+      const response = await api.categories.getCategoryTree({ 
+        depth: 10 // Get all levels
+      });
       return response?.data || [];
     },
-    staleTime: 30 * 60 * 1000,
+    staleTime: 30 * 60 * 1000, // Cache for 30 minutes
     retry: 2
   });
 
-  // Close dropdown when clicking outside (desktop only)
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimeout) clearTimeout(hoverTimeout);
+      if (menuTimeout) clearTimeout(menuTimeout);
+    };
+  }, [hoverTimeout, menuTimeout]);
+
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (window.innerWidth >= 1024) {
-        if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-          setIsOpen(false);
-          setActiveCategory(null);
-          setHoveredCategory(null);
-          setHoveredSubcategory(null);
-        }
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        closeDropdown();
       }
     };
 
@@ -108,123 +66,152 @@ const CategoryDropdown = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Handle hover with delay for desktop
+  const closeDropdown = () => {
+    setIsOpen(false);
+    setHoveredCategory(null);
+    setHoveredSubCategory(null);
+    setHoveredSubSubCategory(null);
+    setMobileNavStack([]);
+  };
+
+  // Desktop hover handlers with proper delay
   const handleCategoryHover = (category) => {
-    if (window.innerWidth >= 1024) {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (window.innerWidth < 1024) return;
+    
+    if (hoverTimeout) clearTimeout(hoverTimeout);
+    if (menuTimeout) clearTimeout(menuTimeout);
+    
+    setHoverTimeout(setTimeout(() => {
       setHoveredCategory(category);
-      setActiveCategory(category);
+      setHoveredSubCategory(null);
+      setHoveredSubSubCategory(null);
+    }, 100));
+  };
+
+  const handleSubCategoryHover = (subCategory) => {
+    if (window.innerWidth < 1024) return;
+    
+    if (hoverTimeout) clearTimeout(hoverTimeout);
+    if (menuTimeout) clearTimeout(menuTimeout);
+    
+    setHoverTimeout(setTimeout(() => {
+      setHoveredSubCategory(subCategory);
+      setHoveredSubSubCategory(null);
+    }, 100));
+  };
+
+  const handleSubSubCategoryHover = (subSubCategory) => {
+    if (window.innerWidth < 1024) return;
+    
+    if (hoverTimeout) clearTimeout(hoverTimeout);
+    if (menuTimeout) clearTimeout(menuTimeout);
+    
+    setHoverTimeout(setTimeout(() => {
+      setHoveredSubSubCategory(subSubCategory);
+    }, 100));
+  };
+
+  const handleMenuLeave = () => {
+    if (window.innerWidth < 1024) return;
+    
+    if (hoverTimeout) clearTimeout(hoverTimeout);
+    setMenuTimeout(setTimeout(() => {
+      setHoveredCategory(null);
+      setHoveredSubCategory(null);
+      setHoveredSubSubCategory(null);
+    }, 300));
+  };
+
+  const handleSubMenuEnter = () => {
+    if (window.innerWidth < 1024) return;
+    
+    if (menuTimeout) clearTimeout(menuTimeout);
+  };
+
+  // Mobile navigation handlers
+  const handleMobileCategoryClick = (category) => {
+    if (category.children && category.children.length > 0) {
+      setMobileNavStack([...mobileNavStack, category]);
+    } else {
+      window.location.href = `/category/${category.slug}`;
+      closeDropdown();
     }
   };
 
-  const handleCategoryLeave = () => {
-    if (window.innerWidth >= 1024) {
-      timeoutRef.current = setTimeout(() => {
-        if (!hoveredSubcategory) {
-          setHoveredCategory(null);
-          setActiveCategory(null);
-        }
-      }, 200);
+  const handleMobileBack = () => {
+    setMobileNavStack(mobileNavStack.slice(0, -1));
+  };
+
+  const handleMobileViewAll = (category) => {
+    window.location.href = `/category/${category.slug}`;
+    closeDropdown();
+  };
+
+  // Get current mobile view data
+  const getCurrentMobileView = () => {
+    if (mobileNavStack.length === 0) {
+      return {
+        title: 'All Categories',
+        items: categories,
+        parent: null
+      };
+    } else {
+      const currentCategory = mobileNavStack[mobileNavStack.length - 1];
+      return {
+        title: currentCategory.name,
+        items: currentCategory.children || [],
+        parent: currentCategory
+      };
     }
   };
 
-  const handleSubcategoryHover = (subcategory) => {
-    if (window.innerWidth >= 1024) {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setHoveredSubcategory(subcategory);
-    }
-  };
-
-  const handleSubcategoryLeave = () => {
-    if (window.innerWidth >= 1024) {
-      setHoveredSubcategory(null);
-    }
-  };
-
-  const toggleCategory = (categoryId) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [categoryId]: !prev[categoryId]
-    }));
-  };
-
-  // Get icon based on category
+  // Get category icon
   const getCategoryIcon = (category) => {
-    if (category?.iconImage) {
+    if (category?.iconImage?.url) {
       return (
-        <div className="w-5 h-5 rounded overflow-hidden">
-          <img src={category.iconImage} alt={category.name} className="w-full h-full object-cover" />
+        <div className="w-5 h-5 rounded overflow-hidden flex-shrink-0">
+          <img 
+            src={category.iconImage.url} 
+            alt={category.iconImage.alt || category.name}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.target.onerror = null;
+              e.target.style.display = 'none';
+            }}
+          />
         </div>
       );
     }
     
-    const categoryName = category?.name?.toLowerCase() || '';
-    for (const [key, icon] of Object.entries(categoryIcons)) {
-      if (categoryName.includes(key)) {
-        return React.cloneElement(icon, { className: 'w-5 h-5' });
-      }
+    if (category?.icon) {
+      return <i className={`${category.icon} w-5 h-5`} />;
     }
-    return React.cloneElement(categoryIcons.default, { className: 'w-5 h-5' });
+    
+    return <Home className="w-5 h-5 text-gray-400" />;
   };
 
-  // Get gradient color for category
-  const getCategoryGradient = (index) => {
-    const gradients = [
-      'from-blue-500 to-cyan-500',
-      'from-purple-500 to-pink-500',
-      'from-orange-500 to-red-500',
-      'from-green-500 to-emerald-500',
-      'from-yellow-500 to-amber-500',
-      'from-indigo-500 to-purple-500',
-      'from-pink-500 to-rose-500',
-      'from-teal-500 to-green-500',
-    ];
-    return gradients[index % gradients.length];
+  // Get category image
+  const getCategoryImage = (category) => {
+    if (category?.image?.url) {
+      return category.image.url;
+    }
+    if (category?.banner?.url) {
+      return category.banner.url;
+    }
+    return null;
   };
 
-  // Recursive function to render category tree for mobile
-  const renderCategoryTree = (category, depth = 0) => {
-    const hasChildren = category.children && category.children.length > 0;
-    const isExpanded = expandedCategories[category._id];
-
-    return (
-      <div key={category._id} className="border-b border-gray-100 last:border-0">
-        <div className="flex items-center">
-          <Link
-            to={`/category/${category.slug}`}
-            className="flex-1 flex items-center gap-3 px-4 py-3 text-gray-700 hover:text-teal-600 hover:bg-teal-50 transition-colors"
-            onClick={() => setIsOpen(false)}
-          >
-            <div className="w-6 h-6 flex items-center justify-center">
-              {getCategoryIcon(category)}
-            </div>
-            <span className="font-medium">{category.name}</span>
-            {category.productCount > 0 && (
-              <span className="text-xs text-gray-500 ml-auto">
-                {category.productCount}
-              </span>
-            )}
-          </Link>
-          {hasChildren && (
-            <button
-              onClick={() => toggleCategory(category._id)}
-              className="p-3 hover:bg-gray-100 transition-colors"
-            >
-              <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
-                isExpanded ? 'rotate-90' : ''
-              }`} />
-            </button>
-          )}
-        </div>
-        
-        {hasChildren && isExpanded && (
-          <div className="ml-6 pl-2 border-l-2 border-teal-100">
-            {category.children.map(child => renderCategoryTree(child, depth + 1))}
-          </div>
-        )}
-      </div>
-    );
-  };
+  // Calculate total products
+  const totalProducts = useMemo(() => {
+    const calculateTotal = (cats) => {
+      return cats.reduce((acc, cat) => {
+        const productCount = cat.stats?.productCount || 0;
+        const childrenTotal = cat.children ? calculateTotal(cat.children) : 0;
+        return acc + productCount + childrenTotal;
+      }, 0);
+    };
+    return calculateTotal(categories);
+  }, [categories]);
 
   // Loading state
   if (isLoading) {
@@ -239,9 +226,12 @@ const CategoryDropdown = () => {
     );
   }
 
+  // Get current mobile view
+  const currentView = getCurrentMobileView();
+
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* Dropdown Trigger - Modern Button */}
+      {/* Dropdown Trigger */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
@@ -267,13 +257,14 @@ const CategoryDropdown = () => {
       <AnimatePresence>
         {isOpen && window.innerWidth >= 1024 && (
           <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            transition={{ duration: 0.3, type: 'spring', damping: 25 }}
-            className="absolute left-0 mt-3 w-[1000px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+            className="absolute left-0 mt-3 w-[1100px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden"
+            onMouseLeave={handleMenuLeave}
           >
-            {/* Header with gradient */}
+            {/* Header */}
             <div className="bg-gradient-to-r from-teal-600 to-teal-500 px-6 py-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2">
@@ -281,263 +272,365 @@ const CategoryDropdown = () => {
                   Shop by Category
                 </h3>
                 <button
-                  onClick={() => setIsOpen(false)}
+                  onClick={closeDropdown}
                   className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
                 >
                   <X className="w-4 h-4 text-white" />
                 </button>
               </div>
-              <p className="text-white/80 text-sm mt-1">
-                Browse through our {categories.length} categories
-              </p>
             </div>
 
-            <div className="flex divide-x divide-gray-100">
-              {/* Main Categories Column */}
-              <div className="w-72 p-5 bg-gray-50/50 max-h-[600px] overflow-y-auto">
-                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4 px-3">
-                  All Categories
-                </h4>
-                <div className="space-y-1">
-                  {categories.map((category, index) => (
-                    <div
-                      key={category._id}
-                      onMouseEnter={() => handleCategoryHover(category)}
-                      onMouseLeave={handleCategoryLeave}
-                      className={`
-                        group relative px-3 py-3 rounded-xl cursor-pointer 
-                        transition-all duration-200
-                        ${activeCategory?._id === category._id
-                          ? 'bg-white shadow-md border border-teal-100'
-                          : 'hover:bg-white hover:shadow-sm hover:border-gray-200'
-                        }
-                      `}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className={`flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br ${getCategoryGradient(index)} flex items-center justify-center text-white`}>
+            <div className="flex h-[600px]">
+              {/* Level 1: Main Categories */}
+              <div className="w-72 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+                <div className="p-4">
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                    Main Categories
+                  </h4>
+                  <div className="space-y-1">
+                    {categories.map((category) => (
+                      <div
+                        key={category._id}
+                        ref={el => categoryRefs.current[category._id] = el}
+                        onMouseEnter={() => handleCategoryHover(category)}
+                        className={`
+                          relative px-3 py-2.5 rounded-lg cursor-pointer
+                          transition-all duration-200
+                          ${hoveredCategory?._id === category._id
+                            ? 'bg-white shadow-md border border-teal-100'
+                            : 'hover:bg-white hover:shadow-sm'
+                          }
+                        `}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
                             {getCategoryIcon(category)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm font-medium text-gray-900 block truncate">
-                              {category.name}
-                            </span>
-                            {category.productCount > 0 && (
-                              <span className="text-xs text-gray-500">
-                                {category.productCount} items
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-gray-900 block truncate">
+                                {category.name}
                               </span>
-                            )}
+                              {category.stats?.productCount > 0 && (
+                                <span className="text-xs text-gray-500">
+                                  {category.stats.productCount} items
+                                </span>
+                              )}
+                              {category.children?.length > 0 && (
+                                <span className="text-xs text-teal-600 ml-1">
+                                  ({category.children.length})
+                                </span>
+                              )}
+                            </div>
                           </div>
+                          {category.children?.length > 0 && (
+                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-all duration-200 ${
+                              hoveredCategory?._id === category._id ? 'translate-x-1 text-teal-600' : ''
+                            }`} />
+                          )}
                         </div>
-                        {category.children?.length > 0 && (
-                          <ChevronRight className={`w-4 h-4 text-gray-400 transition-all duration-200 ${
-                            activeCategory?._id === category._id ? 'translate-x-1 text-teal-600' : ''
-                          }`} />
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* Subcategories Column */}
-              <div className="flex-1 p-6 bg-white max-h-[600px] overflow-y-auto">
-                {activeCategory ? (
-                  <div>
-                    {/* Category Header */}
-                    <div className="flex items-center justify-between mb-6 sticky top-0 bg-white pb-2 border-b">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${getCategoryGradient(categories.findIndex(c => c._id === activeCategory._id))} flex items-center justify-center text-white`}>
-                          {getCategoryIcon(activeCategory)}
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {activeCategory.name}
-                          </h3>
-                          <p className="text-sm text-gray-500">
-                            {activeCategory.productCount || 0} products available
-                          </p>
-                        </div>
-                      </div>
+              {/* Level 2: Sub Categories */}
+              {hoveredCategory && hoveredCategory.children?.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="w-72 bg-white border-r border-gray-200 overflow-y-auto"
+                  onMouseEnter={handleSubMenuEnter}
+                  onMouseLeave={() => setHoveredSubCategory(null)}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                        {hoveredCategory.name}
+                      </h4>
                       <Link
-                        to={`/category/${activeCategory.slug}`}
-                        className="px-4 py-2 text-sm font-medium text-teal-600 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
-                        onClick={() => setIsOpen(false)}
+                        to={`/category/${hoveredCategory.slug}`}
+                        className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                        onClick={closeDropdown}
                       >
                         View All
                       </Link>
                     </div>
+                    <div className="space-y-1">
+                      {hoveredCategory.children.map((subCategory) => (
+                        <div
+                          key={subCategory._id}
+                          ref={el => subCategoryRefs.current[subCategory._id] = el}
+                          onMouseEnter={() => handleSubCategoryHover(subCategory)}
+                          className={`
+                            relative px-3 py-2.5 rounded-lg cursor-pointer
+                            transition-all duration-200
+                            ${hoveredSubCategory?._id === subCategory._id
+                              ? 'bg-teal-50 border border-teal-100'
+                              : 'hover:bg-gray-50'
+                            }
+                          `}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              {getCategoryIcon(subCategory)}
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm text-gray-700 block truncate">
+                                  {subCategory.name}
+                                </span>
+                                {subCategory.stats?.productCount > 0 && (
+                                  <span className="text-xs text-gray-500">
+                                    {subCategory.stats.productCount} items
+                                  </span>
+                                )}
+                                {subCategory.children?.length > 0 && (
+                                  <span className="text-xs text-teal-600 ml-1">
+                                    ({subCategory.children.length})
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {subCategory.children?.length > 0 && (
+                              <ChevronRight className={`w-4 h-4 text-gray-400 transition-all duration-200 ${
+                                hoveredSubCategory?._id === subCategory._id ? 'translate-x-1 text-teal-600' : ''
+                              }`} />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
 
-                    {/* Subcategories Grid */}
-                    {activeCategory.children && activeCategory.children.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-5">
-                        {activeCategory.children.map((subcategory, idx) => (
-                          <div
-                            key={subcategory._id}
-                            className="relative group"
-                            onMouseEnter={() => handleSubcategoryHover(subcategory)}
-                            onMouseLeave={handleSubcategoryLeave}
-                          >
-                            <div className="p-3 rounded-xl border border-gray-100 hover:border-teal-200 hover:shadow-md transition-all duration-200">
-                              <Link
-                                to={`/category/${subcategory.slug}`}
-                                className="block"
-                                onClick={() => setIsOpen(false)}
-                              >
-                                <div className="flex items-center gap-2 mb-2">
-                                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    {getCategoryIcon(subcategory)}
-                                  </div>
-                                  <div>
-                                    <span className="text-sm font-medium text-gray-900 block">
-                                      {subcategory.name}
-                                    </span>
-                                    {subcategory.productCount > 0 && (
-                                      <span className="text-xs text-gray-500">
-                                        {subcategory.productCount} items
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </Link>
-
-                              {/* Third level categories */}
-                              {subcategory.children && subcategory.children.length > 0 && (
-                                <div className="mt-2 pt-2 border-t border-gray-100">
-                                  <div className="space-y-1">
-                                    {subcategory.children.slice(0, 4).map((thirdLevel) => (
-                                      <Link
-                                        key={thirdLevel._id}
-                                        to={`/category/${thirdLevel.slug}`}
-                                        className="block px-2 py-1.5 text-xs text-gray-600 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors"
-                                        onClick={() => setIsOpen(false)}
-                                      >
-                                        <div className="flex items-center justify-between">
-                                          <span className="truncate">{thirdLevel.name}</span>
-                                          {thirdLevel.productCount > 0 && (
-                                            <span className="text-xs text-gray-400">
-                                              {thirdLevel.productCount}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </Link>
-                                    ))}
-                                    {subcategory.children.length > 4 && (
-                                      <Link
-                                        to={`/category/${subcategory.slug}`}
-                                        className="block px-2 py-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium"
-                                        onClick={() => setIsOpen(false)}
-                                      >
-                                        +{subcategory.children.length - 4} more
-                                      </Link>
-                                    )}
-                                  </div>
-                                </div>
+              {/* Level 3: Sub Sub Categories */}
+              {hoveredSubCategory && hoveredSubCategory.children?.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="w-72 bg-white overflow-y-auto"
+                  onMouseEnter={handleSubMenuEnter}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                        {hoveredSubCategory.name}
+                      </h4>
+                      <Link
+                        to={`/category/${hoveredSubCategory.slug}`}
+                        className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                        onClick={closeDropdown}
+                      >
+                        View All
+                      </Link>
+                    </div>
+                    <div className="space-y-1">
+                      {hoveredSubCategory.children.map((subSubCategory) => (
+                        <Link
+                          key={subSubCategory._id}
+                          ref={el => subSubCategoryRefs.current[subSubCategory._id] = el}
+                          to={`/category/${subSubCategory.slug}`}
+                          onMouseEnter={() => handleSubSubCategoryHover(subSubCategory)}
+                          onClick={closeDropdown}
+                          className={`
+                            block px-3 py-2.5 rounded-lg
+                            transition-all duration-200
+                            ${hoveredSubSubCategory?._id === subSubCategory._id
+                              ? 'bg-teal-50 border border-teal-100'
+                              : 'hover:bg-gray-50'
+                            }
+                          `}
+                        >
+                          <div className="flex items-center gap-3">
+                            {getCategoryIcon(subSubCategory)}
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm text-gray-700 block truncate">
+                                {subSubCategory.name}
+                              </span>
+                              {subSubCategory.stats?.productCount > 0 && (
+                                <span className="text-xs text-gray-500">
+                                  {subSubCategory.stats.productCount} items
+                                </span>
                               )}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-12 text-gray-500">
-                        No subcategories available
-                      </div>
-                    )}
+                        </Link>
+                      ))}
+                    </div>
 
                     {/* Category Banner */}
-                    {activeCategory.image && (
+                    {getCategoryImage(hoveredSubCategory) && (
                       <Link
-                        to={`/category/${activeCategory.slug}`}
-                        className="block mt-6 pt-6 border-t border-gray-200"
-                        onClick={() => setIsOpen(false)}
+                        to={`/category/${hoveredSubCategory.slug}`}
+                        className="block mt-6 pt-4 border-t border-gray-200"
+                        onClick={closeDropdown}
                       >
-                        <div className="relative h-36 rounded-xl overflow-hidden group">
+                        <div className="relative h-32 rounded-lg overflow-hidden group">
                           <img 
-                            src={activeCategory.image} 
-                            alt={activeCategory.name}
+                            src={getCategoryImage(hoveredSubCategory)}
+                            alt={hoveredSubCategory.name}
                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-transparent flex items-center p-6">
+                          <div className="absolute inset-0 bg-gradient-to-r from-black/70 to-transparent flex items-center p-4">
                             <div>
-                              <p className="text-white text-lg font-semibold">Shop {activeCategory.name}</p>
-                              <p className="text-white/80 text-sm mt-1">
-                                {activeCategory.productCount || 0} products available
+                              <p className="text-white text-sm font-semibold">Shop {hoveredSubCategory.name}</p>
+                              <p className="text-white/80 text-xs mt-1">
+                                {hoveredSubCategory.stats?.productCount || 0} products
                               </p>
-                              <span className="inline-block mt-3 px-4 py-2 bg-white text-teal-600 rounded-lg text-sm font-medium hover:bg-teal-50 transition-colors">
-                                Browse Collection →
-                              </span>
                             </div>
                           </div>
                         </div>
                       </Link>
                     )}
                   </div>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-12">
-                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-teal-100 to-teal-50 flex items-center justify-center mb-4">
-                      <ShoppingBag className="w-10 h-10 text-teal-600" />
+                </motion.div>
+              )}
+
+              {/* Empty States */}
+              {hoveredCategory && (!hoveredCategory.children || hoveredCategory.children.length === 0) && (
+                <div className="flex-1 flex items-center justify-center bg-white">
+                  <div className="text-center p-8">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                      <ShoppingBag className="w-8 h-8 text-gray-400" />
                     </div>
-                    <p className="text-gray-700 font-medium mb-2">Select a category</p>
-                    <p className="text-sm text-gray-500 max-w-xs">
-                      Choose a category from the left to view its subcategories and products
+                    <p className="text-gray-600 font-medium">No subcategories</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Browse products in this category
                     </p>
+                    <Link
+                      to={`/category/${hoveredCategory.slug}`}
+                      className="inline-block mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-colors"
+                      onClick={closeDropdown}
+                    >
+                      View Products
+                    </Link>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Footer */}
-            <div className="bg-gray-50/80 px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                  <span className="text-xs text-gray-600">
-                    {categories.reduce((acc, cat) => acc + (cat.productCount || 0), 0)} products
-                  </span>
-                </div>
+            <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-gray-600">
+                  {totalProducts} products
+                </span>
                 <span className="text-xs text-gray-400">•</span>
                 <span className="text-xs text-gray-600">
-                  {categories.length} categories
+                  {categories.length} main categories
                 </span>
               </div>
-              <button 
-                onClick={() => setIsOpen(false)}
-                className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 hover:bg-gray-200 rounded-lg transition-colors"
+              <Link
+                to="/categories"
+                className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                onClick={closeDropdown}
               >
-                Close
-              </button>
+                Browse All Categories →
+              </Link>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Mobile Dropdown Menu - Simplified Tree View */}
+      {/* Mobile Dropdown Menu */}
       <AnimatePresence>
         {isOpen && window.innerWidth < 1024 && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.2 }}
             className="fixed inset-0 bg-white z-50 overflow-y-auto"
           >
             {/* Mobile Header */}
             <div className="sticky top-0 bg-gradient-to-r from-teal-600 to-teal-500 text-white p-4 shadow-lg z-10">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                {mobileNavStack.length > 0 && (
+                  <button
+                    onClick={handleMobileBack}
+                    className="p-2 mr-2 hover:bg-white/10 rounded-lg transition-colors"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                )}
                 <button
-                  onClick={() => setIsOpen(false)}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                  onClick={closeDropdown}
+                  className="p-2 mr-2 hover:bg-white/10 rounded-lg transition-colors"
                 >
-                  <X className="w-6 h-6" />
+                  <X className="w-5 h-5" />
                 </button>
-                <h2 className="text-lg font-semibold">All Categories</h2>
-                <div className="w-10"></div>
+                <h2 className="text-lg font-semibold flex-1">{currentView.title}</h2>
+                {currentView.parent && (
+                  <button
+                    onClick={() => handleMobileViewAll(currentView.parent)}
+                    className="px-3 py-1.5 bg-white/20 rounded-lg text-sm font-medium"
+                  >
+                    View All
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Mobile Content - Tree View */}
+            {/* Mobile Content */}
             <div className="divide-y divide-gray-100">
-              {categories.map(category => renderCategoryTree(category))}
+              {currentView.items.map((item) => (
+                <div
+                  key={item._id}
+                  className="border-b border-gray-100 last:border-0"
+                >
+                  <button
+                    onClick={() => handleMobileCategoryClick(item)}
+                    className="w-full flex items-center gap-3 px-4 py-4 text-left hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                      {getCategoryIcon(item)}
+                    </div>
+                    <div className="flex-1">
+                      <span className="font-medium text-gray-900">{item.name}</span>
+                      {item.stats?.productCount > 0 && (
+                        <span className="ml-2 text-xs text-gray-500">
+                          ({item.stats.productCount})
+                        </span>
+                      )}
+                      {item.children?.length > 0 && (
+                        <span className="ml-1 text-xs text-teal-600">
+                          ({item.children.length})
+                        </span>
+                      )}
+                    </div>
+                    {item.children?.length > 0 && (
+                      <ChevronRight className="w-5 h-5 text-gray-400" />
+                    )}
+                  </button>
+
+                  {/* Show preview of subcategories if available */}
+                  {item.children?.length > 0 && (
+                    <div className="px-4 pb-3 ml-11">
+                      <div className="flex flex-wrap gap-2">
+                        {item.children.slice(0, 3).map((subItem) => (
+                          <Link
+                            key={subItem._id}
+                            to={`/category/${subItem.slug}`}
+                            className="px-3 py-1.5 bg-gray-100 rounded-full text-xs text-gray-600 hover:bg-teal-100 hover:text-teal-700 transition-colors"
+                            onClick={closeDropdown}
+                          >
+                            {subItem.name}
+                          </Link>
+                        ))}
+                        {item.children.length > 3 && (
+                          <button
+                            onClick={() => handleMobileCategoryClick(item)}
+                            className="px-3 py-1.5 bg-gray-100 rounded-full text-xs text-teal-600 hover:bg-teal-100 transition-colors"
+                          >
+                            +{item.children.length - 3} more
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
             {/* Quick Links */}
@@ -549,7 +642,7 @@ const CategoryDropdown = () => {
                 <Link
                   to="/new-arrivals"
                   className="p-3 bg-white rounded-xl text-left hover:shadow-md transition-shadow"
-                  onClick={() => setIsOpen(false)}
+                  onClick={closeDropdown}
                 >
                   <Sparkles className="w-5 h-5 text-purple-600 mb-1" />
                   <span className="text-sm font-medium text-gray-700">New Arrivals</span>
@@ -557,7 +650,7 @@ const CategoryDropdown = () => {
                 <Link
                   to="/best-sellers"
                   className="p-3 bg-white rounded-xl text-left hover:shadow-md transition-shadow"
-                  onClick={() => setIsOpen(false)}
+                  onClick={closeDropdown}
                 >
                   <Zap className="w-5 h-5 text-orange-600 mb-1" />
                   <span className="text-sm font-medium text-gray-700">Best Sellers</span>
@@ -565,7 +658,7 @@ const CategoryDropdown = () => {
                 <Link
                   to="/offers"
                   className="p-3 bg-white rounded-xl text-left hover:shadow-md transition-shadow"
-                  onClick={() => setIsOpen(false)}
+                  onClick={closeDropdown}
                 >
                   <Percent className="w-5 h-5 text-green-600 mb-1" />
                   <span className="text-sm font-medium text-gray-700">Special Offers</span>
@@ -573,7 +666,7 @@ const CategoryDropdown = () => {
                 <Link
                   to="/gifts"
                   className="p-3 bg-white rounded-xl text-left hover:shadow-md transition-shadow"
-                  onClick={() => setIsOpen(false)}
+                  onClick={closeDropdown}
                 >
                   <Gift className="w-5 h-5 text-blue-600 mb-1" />
                   <span className="text-sm font-medium text-gray-700">Gift Ideas</span>
