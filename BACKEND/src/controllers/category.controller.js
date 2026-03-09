@@ -1691,23 +1691,218 @@ export const getCategoryTree = async (req, res) => {
  * @route   GET /api/categories/menu
  * @access  Public
  */
+
+// In your category controller - REPLACE your getMenuCategories function
+
 export const getMenuCategories = async (req, res) => {
   try {
-    const menu = await Category.getMenuCategories();
+    console.log('📡 Fetching menu categories...');
     
-    // Cache for 1 hour
-    res.set('Cache-Control', 'public, max-age=3600');
+    // Get all categories
+    const allCategories = await Category.find({
+      'settings.showInMenu': true,
+      'settings.isActive': true,
+      'settings.isVisible': true,
+      isDeleted: false
+    })
+      .select('name slug description image banner icon iconImage stats settings parent level')
+      .lean();
+
+    console.log(`✅ Found ${allCategories.length} total categories`);
+    
+    // Log raw data from database
+    console.log('\n📋 RAW DATA FROM DATABASE:');
+    allCategories.forEach(cat => {
+      console.log(`  ${cat.name}:`, {
+        id: cat._id.toString(),
+        parent: cat.parent,
+        parentType: cat.parent ? typeof cat.parent : 'null',
+        parentString: cat.parent ? cat.parent.toString() : null,
+        level: cat.level
+      });
+    });
+
+    // Create a map for quick lookups
+    const categoryMap = new Map();
+    const rootCategories = [];
+
+    // First pass: Create map with all categories and ensure parent is string
+    allCategories.forEach(category => {
+      // Convert parent ObjectId to string if it exists
+      let parentId = null;
+      if (category.parent) {
+        // Handle ObjectId format { "$oid": "..." }
+        if (category.parent.$oid) {
+          parentId = category.parent.$oid;
+          console.log(`  🔄 ${category.name}: Extracted $oid: ${parentId}`);
+        } 
+        // Handle regular ObjectId
+        else if (category.parent.toString) {
+          parentId = category.parent.toString();
+          console.log(`  🔄 ${category.name}: Converted ObjectId: ${parentId}`);
+        }
+        // Handle any other case
+        else {
+          parentId = category.parent;
+          console.log(`  🔄 ${category.name}: Used as is: ${parentId}`);
+        }
+      } else {
+        console.log(`  🔄 ${category.name}: No parent (root candidate)`);
+      }
+      
+      categoryMap.set(category._id.toString(), {
+        ...category,
+        parent: parentId, // Store as string ID
+        children: []
+      });
+    });
+
+    // Second pass: Build tree structure
+    console.log('\n🌳 BUILDING TREE STRUCTURE:');
+    allCategories.forEach(category => {
+      const categoryId = category._id.toString();
+      const categoryWithChildren = categoryMap.get(categoryId);
+      
+      // Get the parent ID (now stored as string)
+      const parentId = categoryWithChildren.parent;
+      
+      if (parentId) {
+        console.log(`  🔍 ${category.name} looking for parent ID: ${parentId}`);
+        const parent = categoryMap.get(parentId);
+        
+        if (parent) {
+          parent.children.push(categoryWithChildren);
+          console.log(`  ✅ Nested "${category.name}" under "${parent.name}"`);
+        } else {
+          rootCategories.push(categoryWithChildren);
+          console.log(`  ⚠️ "${category.name}" has parent ID ${parentId} but parent NOT FOUND in map`);
+        }
+      } else {
+        rootCategories.push(categoryWithChildren);
+        console.log(`  📌 Root category: "${category.name}"`);
+      }
+    });
+
+    // Log rootCategories before cleaning
+    console.log('\n📊 ROOT CATEGORIES BEFORE CLEANING:');
+    rootCategories.forEach((cat, index) => {
+      console.log(`  [${index}] ${cat.name}:`, {
+        id: cat._id,
+        parent: cat.parent,
+        childrenCount: cat.children.length,
+        children: cat.children.map(c => c.name)
+      });
+    });
+
+    // Sort function for categories
+    const sortCategories = (cats) => {
+      cats.sort((a, b) => {
+        if ((a.settings?.menuPosition || 0) !== (b.settings?.menuPosition || 0)) {
+          return (a.settings?.menuPosition || 0) - (b.settings?.menuPosition || 0);
+        }
+        if ((a.settings?.sortOrder || 0) !== (b.settings?.sortOrder || 0)) {
+          return (a.settings?.sortOrder || 0) - (b.settings?.sortOrder || 0);
+        }
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      cats.forEach(cat => {
+        if (cat.children?.length > 0) {
+          sortCategories(cat.children);
+        }
+      });
+    };
+
+    sortCategories(rootCategories);
+
+    console.log('\n📊 FINAL MENU STRUCTURE:');
+    rootCategories.forEach(root => {
+      console.log(`   📁 ${root.name} - Children: ${root.children.length}`);
+      root.children.forEach(child => {
+        console.log(`      📂 ${child.name} - Children: ${child.children.length}`);
+        if (child.children.length > 0) {
+          child.children.forEach(grandchild => {
+            console.log(`         📄 ${grandchild.name}`);
+          });
+        }
+      });
+    });
+
+    // Clean up the response
+    const cleanCategories = rootCategories.map(cat => ({
+      _id: cat._id,
+      name: cat.name,
+      slug: cat.slug,
+      description: cat.description,
+      image: cat.image,
+      banner: cat.banner,
+      icon: cat.icon,
+      iconImage: cat.iconImage,
+      level: cat.level,
+      parent: cat.parent, // Include parent
+      stats: cat.stats,
+      settings: {
+        columnCount: cat.settings?.columnCount || 4,
+        menuPosition: cat.settings?.menuPosition || 0,
+        sortOrder: cat.settings?.sortOrder || 0
+      },
+      children: cat.children.map(child => ({
+        _id: child._id,
+        name: child.name,
+        slug: child.slug,
+        description: child.description,
+        image: child.image,
+        icon: child.icon,
+        iconImage: child.iconImage,
+        level: child.level,
+        parent: child.parent, // Include parent
+        stats: child.stats,
+        settings: {
+          columnCount: child.settings?.columnCount || 4,
+          menuPosition: child.settings?.menuPosition || 0,
+          sortOrder: child.settings?.sortOrder || 0
+        },
+        children: child.children.map(grandchild => ({
+          _id: grandchild._id,
+          name: grandchild.name,
+          slug: grandchild.slug,
+          level: grandchild.level,
+          parent: grandchild.parent, // Include parent
+          stats: grandchild.stats
+        }))
+      }))
+    }));
+
+    // Log what we're sending
+    console.log('\n📤 SENDING DATA:');
+    console.log('Root categories count:', cleanCategories.length);
+    cleanCategories.forEach((cat, index) => {
+      console.log(`  [${index}] ${cat.name}:`, {
+        parent: cat.parent,
+        childrenCount: cat.children.length
+      });
+    });
+
+    // Disable caching for testing
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    
+    console.log(`\n✅ Sending ${cleanCategories.length} root categories with nested children`);
     
     res.json({
       success: true,
-      data: menu
+      data: cleanCategories
     });
+
   } catch (error) {
-    console.error('Get menu categories error:', error);
+    console.error('❌ Get menu categories error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch menu categories',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

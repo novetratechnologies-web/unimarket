@@ -25,11 +25,7 @@ const router = express.Router();
 // PUBLIC ROUTES (No Authentication Required)
 // ============================================
 
-/**
- * @route   GET /api/categories
- * @desc    Get all categories with filtering and pagination
- * @access  Public
- */
+
 
 /**
  * @route   GET /api/categories/tree
@@ -40,17 +36,6 @@ router.get(
   '/tree',
   cacheMiddleware(600),
   categoryController.getCategoryTree
-);
-
-/**
- * @route   GET /api/categories/menu
- * @desc    Get categories formatted for navigation menu
- * @access  Public
- */
-router.get(
-  '/menu',
-  cacheMiddleware(3600),
-  categoryController.getMenuCategories
 );
 
 /**

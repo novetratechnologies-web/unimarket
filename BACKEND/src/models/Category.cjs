@@ -1232,10 +1232,11 @@ categorySchema.statics.getBreadcrumb = async function(slug) {
   return category.breadcrumb;
 };
 
+
 /**
- * Get menu categories
+ * Get menu categories with full nested structure
  */
-categorySchema.statics.getMenuCategories = async function(depth = 2) {
+categorySchema.statics.getMenuCategories = async function(depth = 10) {
   const query = {
     'settings.showInMenu': true,
     'settings.isActive': true,
@@ -1243,51 +1244,65 @@ categorySchema.statics.getMenuCategories = async function(depth = 2) {
     isDeleted: false
   };
   
+  // Get all categories that match the criteria
   const categories = await this.find(query)
-    .sort('settings.menuPosition settings.sortOrder')
-    .select('name slug level parent ancestors settings.columnCount');
-  
-  const menu = [];
-  
-  for (const category of categories) {
-    if (!category.parent) {
-      const menuItem = {
-        _id: category._id,
-        name: category.name,
-        slug: category.slug,
-        url: `/category/${category.slug}`,
-        columnCount: category.settings.columnCount || 4,
-        children: []
-      };
-      
-      // Get direct children
-      const children = categories.filter(c => 
-        c.parent?.toString() === category._id.toString()
-      );
-      
-      for (const child of children) {
-        menuItem.children.push({
-          _id: child._id,
-          name: child.name,
-          slug: child.slug,
-          url: `/category/${child.slug}`,
-          children: categories.filter(gc => 
-            gc.parent?.toString() === child._id.toString()
-          ).map(gc => ({
-            _id: gc._id,
-            name: gc.name,
-            slug: gc.slug,
-            url: `/category/${gc.slug}`
-          }))
-        });
+    .sort('settings.menuPosition settings.sortOrder name')
+    .select('name slug description image banner icon iconImage stats settings parent level')
+    .lean();
+
+  // Create a map for quick lookups
+  const categoryMap = new Map();
+  const rootCategories = [];
+
+  // First pass: create map with empty children array
+  categories.forEach(category => {
+    category.children = [];
+    categoryMap.set(category._id.toString(), category);
+  });
+
+  // Second pass: build tree structure
+  categories.forEach(category => {
+    if (category.parent) {
+      const parentId = category.parent.toString();
+      const parent = categoryMap.get(parentId);
+      if (parent) {
+        parent.children.push(category);
+      } else {
+        // Parent not in menu, treat as root
+        rootCategories.push(category);
       }
-      
-      menu.push(menuItem);
+    } else {
+      rootCategories.push(category);
     }
-  }
-  
-  return menu;
+  });
+
+
+  // Recursively clean and prepare categories
+  const prepareCategory = (cat) => ({
+    _id: cat._id,
+    name: cat.name,
+    slug: cat.slug,
+    description: cat.description,
+    image: cat.image,
+    banner: cat.banner,
+    icon: cat.icon,
+    iconImage: cat.iconImage,
+    level: cat.level,
+    stats: {
+      productCount: cat.stats?.productCount || 0,
+      subcategoryCount: cat.stats?.subcategoryCount || cat.children?.length || 0
+    },
+    settings: {
+      columnCount: cat.settings?.columnCount || 4,
+      menuPosition: cat.settings?.menuPosition || 0,
+      sortOrder: cat.settings?.sortOrder || 0
+    },
+    children: cat.children ? cat.children.map(prepareCategory) : []
+  });
+
+  return rootCategories.map(prepareCategory);
 };
+
 
 /**
  * Get homepage categories
