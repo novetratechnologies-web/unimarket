@@ -1,4 +1,4 @@
-// src/App.jsx - UPDATED WITH FULLSCREEN ANNOUNCEMENT
+// src/App.jsx
 import { Routes, Route, useLocation } from "react-router-dom";
 import Header from "./components/layout/header/Navbar";
 import Home from "./pages/home/Home";
@@ -14,41 +14,46 @@ import UpdateInfo from "./pages/auth/UpdateInfo";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import FullScreenAnnouncement from "./components/layout/FullScreenAnnouncement";
 import Settings from './pages/settings/Settings';
+import CategoryPage from './pages/categories/CategoryPage'
 
 function App() {
   const location = useLocation();
 
-  // Routes where header/footer should be hidden (only auth pages)
+  // Routes where header/footer should be hidden
   const hideLayoutPaths = [
     "/register", 
     "/login", 
     "/verify-email",
-    "/auth/success",
+    "/auth-success",
     "/update-info",
     "/forgot-password",
   ];
 
-  // Check if current path should hide layout
   const shouldHideLayout = hideLayoutPaths.some(path => 
     location.pathname.startsWith(path)
   );
 
-  // Check if it's a 404 page (show minimal layout for 404)
-  const isNotFoundPage = location.pathname === "*" || 
-                         location.pathname === "/404" || 
-                         location.pathname.includes("not-found");
+  const isNotFoundPage = location.pathname === "*" || location.pathname === "/404";
 
   return (
     <AuthProvider>
-      {/* Full-screen announcement that appears after login */}
       <FullScreenAnnouncement />
       
       <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-cyan-50 flex flex-col">
-        {/* Show header for all pages EXCEPT auth pages and 404 */}
         {!shouldHideLayout && !isNotFoundPage && <Header />}
 
         <main className="flex-grow">
           <Routes>
+            {/* ===== PUBLIC PAGES (No Login Required) ===== */}
+            <Route path="/" element={<Home />} />
+            
+            {/* Add more public pages here as you create them */}
+            {/* <Route path="/products" element={<ProductListing />} /> */}
+            {/* <Route path="/product/:slug" element={<ProductDetails />} /> */}
+            <Route path="/category/*" element={<CategoryPage />} />
+            {/* <Route path="/about" element={<About />} /> */}
+            {/* <Route path="/contact" element={<Contact />} /> */}
+
             {/* ===== AUTH PAGES (No Header/Footer) ===== */}
             <Route path="/register" element={<Register />} />
             <Route path="/login" element={<Login />} />
@@ -56,30 +61,56 @@ function App() {
             <Route path="/auth-success" element={<AuthSuccess />} />
             <Route path="/update-info" element={<UpdateInfo />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/complete-profle" element={<ForgotPassword />} />
-            <Route path="/settings" element={
-                                <ProtectedRoute>
-                                  <Settings />
-                                </ProtectedRoute>
-                              } />
 
-
-            {/* ===== MAIN PAGES (With Header/Footer) ===== */}
+            {/* ===== PROTECTED PAGES (Login Required) ===== */}
             <Route
-              path="/"
+              path="/settings"
               element={
                 <ProtectedRoute>
-                  <Home />
+                  <Settings />
                 </ProtectedRoute>
               }
             />
 
-            {/* ===== 404 PAGE (Minimal Layout) ===== */}
+            {/* Add more protected pages here as you create them */}
+            {/* <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/orders"
+              element={
+                <ProtectedRoute>
+                  <OrderHistory />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/wishlist"
+              element={
+                <ProtectedRoute>
+                  <Wishlist />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checkout"
+              element={
+                <ProtectedRoute>
+                  <Checkout />
+                </ProtectedRoute>
+              }
+            /> */}
+
+            {/* ===== 404 PAGE ===== */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
 
-        {/* Show footer for all pages EXCEPT auth pages and 404 */}
         {!shouldHideLayout && !isNotFoundPage && <Footer />}
       </div>
     </AuthProvider>

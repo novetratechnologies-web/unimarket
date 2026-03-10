@@ -89,7 +89,7 @@ export default function Login() {
       console.log('🎉 Login successful, redirecting to dashboard...');
       
       redirectTimeoutRef.current = setTimeout(() => {
-        window.location.href = '/dashboard'; // 🔥 Changed from '/' to '/dashboard'
+        window.location.href = '/'; // 🔥 Changed from '/' to '/dashboard'
       }, 100);
       
     } catch (err) {

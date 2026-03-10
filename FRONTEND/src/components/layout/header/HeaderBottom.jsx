@@ -28,7 +28,8 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../../api/index';
-import CategoryDropdown from '../../category/CategoryDropdown'; 
+import CategoryDropdown from '../../category/CategoryDropdown';
+import MobileCategoryMenu from '../../category/MobileCategoryMenu'; // Import the new component
 
 const colors = {
   primary: {
@@ -49,7 +50,6 @@ const HeaderBottom = () => {
   const [isCategoriesMenuOpen, setIsCategoriesMenuOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState(null);
   const [hoveredCategory, setHoveredCategory] = useState(null);
-  const [mobileNavStack, setMobileNavStack] = useState([]);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   
   const categoriesMenuRef = useRef(null);
@@ -135,52 +135,9 @@ const HeaderBottom = () => {
     return gradients[index % gradients.length];
   };
 
-  // Mobile navigation handlers
-  const handleMobileCategoryClick = (category) => {
-    if (category.children && category.children.length > 0) {
-      setMobileNavStack([...mobileNavStack, category]);
-    } else {
-      window.location.href = `/category/${category.slug}`;
-      setIsCategoriesMenuOpen(false);
-    }
-  };
-
-  const handleMobileBack = () => {
-    setMobileNavStack(mobileNavStack.slice(0, -1));
-  };
-
-  const handleMobileViewAll = (category) => {
-    window.location.href = `/category/${category.slug}`;
-    setIsCategoriesMenuOpen(false);
-  };
-
-  // Get current mobile view data
-  const getCurrentMobileView = () => {
-    if (mobileNavStack.length === 0) {
-      return {
-        title: 'Shop by Category',
-        items: categories,
-        parent: null
-      };
-    } else {
-      const currentCategory = mobileNavStack[mobileNavStack.length - 1];
-      return {
-        title: currentCategory.name,
-        items: currentCategory.children || [],
-        parent: currentCategory
-      };
-    }
-  };
-
   // Toggle mobile menu
   const toggleMobileMenu = () => {
-    if (isCategoriesMenuOpen) {
-      setIsCategoriesMenuOpen(false);
-      setMobileNavStack([]);
-    } else {
-      setIsCategoriesMenuOpen(true);
-      setMobileNavStack([]);
-    }
+    setIsCategoriesMenuOpen(!isCategoriesMenuOpen);
   };
 
   // Loading state
@@ -204,10 +161,8 @@ const HeaderBottom = () => {
     );
   }
 
-  const currentView = getCurrentMobileView();
-
   return (
-    <nav className="bg-gradient-to-r from-teal-600 to-teal-500 text-white shadow-lg sticky top-0 z-40">
+    <nav className="bg-gradient-to-r from-teal-600 to-teal-500 text-white shadow-lg top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
           {/* Left Section - Categories & Navigation */}
@@ -310,7 +265,7 @@ const HeaderBottom = () => {
             </div>
           </div>
 
-          {/* Right Section - Help & Support (unchanged) */}
+          {/* Right Section - Help & Support */}
           <div className="flex items-center gap-3">
             {/* Help Dropdown */}
             <div className="relative hidden lg:block" ref={helpDropdownRef}>
@@ -386,153 +341,18 @@ const HeaderBottom = () => {
                 <ShoppingBag className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Mobile Menu Indicator */}
-            <span className="lg:hidden text-sm font-medium text-white/80">Menu</span>
           </div>
         </div>
       </div>
 
-      {/* Mobile Categories Menu - Updated with stack navigation */}
-      <AnimatePresence>
-        {isCategoriesMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-            className="lg:hidden fixed inset-0 bg-white z-50 overflow-y-auto"
-          >
-            {/* Mobile Menu Header */}
-            <div className="sticky top-0 bg-gradient-to-r from-teal-600 to-teal-500 text-white p-4 shadow-lg z-10">
-              <div className="flex items-center">
-                {mobileNavStack.length > 0 && (
-                  <button
-                    onClick={handleMobileBack}
-                    className="p-2 mr-2 hover:bg-white/10 rounded-lg transition-colors"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
-                )}
-                <button
-                  onClick={toggleMobileMenu}
-                  className="p-2 mr-2 hover:bg-white/10 rounded-lg transition-colors"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-                <h2 className="text-lg font-semibold flex-1">{currentView.title}</h2>
-                {currentView.parent && (
-                  <button
-                    onClick={() => handleMobileViewAll(currentView.parent)}
-                    className="px-3 py-1.5 bg-white/20 rounded-lg text-sm font-medium"
-                  >
-                    View All
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Mobile Menu Content */}
-            <div className="p-4">
-              <div className="space-y-2">
-                {currentView.items.map((item, index) => (
-                  <div
-                    key={item._id}
-                    className="bg-white border border-gray-100 rounded-xl overflow-hidden hover:border-teal-200 transition-colors"
-                  >
-                    <button
-                      onClick={() => handleMobileCategoryClick(item)}
-                      className="w-full flex items-center justify-between p-4 text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${getCategoryGradient(index)} flex items-center justify-center text-white shadow-md`}>
-                          {getCategoryIcon(item)}
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-900">{item.name}</span>
-                          {item.stats?.productCount > 0 && (
-                            <p className="text-xs text-gray-500 mt-0.5">{item.stats.productCount} products</p>
-                          )}
-                        </div>
-                      </div>
-                      {item.children?.length > 0 && (
-                        <ChevronRight className="w-5 h-5 text-gray-400" />
-                      )}
-                    </button>
-
-                    {/* Show preview of subcategories if available */}
-                    {item.children?.length > 0 && mobileNavStack.length === 0 && (
-                      <div className="px-4 pb-4 pl-16">
-                        <div className="flex flex-wrap gap-2">
-                          {item.children.slice(0, 3).map((subItem) => (
-                            <Link
-                              key={subItem._id}
-                              to={`/category/${subItem.slug}`}
-                              className="px-3 py-1.5 bg-gray-100 rounded-full text-xs text-gray-600 hover:bg-teal-100 hover:text-teal-700 transition-colors"
-                              onClick={toggleMobileMenu}
-                            >
-                              {subItem.name}
-                            </Link>
-                          ))}
-                          {item.children.length > 3 && (
-                            <button
-                              onClick={() => handleMobileCategoryClick(item)}
-                              className="px-3 py-1.5 bg-gray-100 rounded-full text-xs text-teal-600 hover:bg-teal-100 transition-colors"
-                            >
-                              +{item.children.length - 3} more
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Quick Links for Mobile */}
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
-                  Quick Links
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <Link
-                    to="/new-arrivals"
-                    className="p-3 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl text-left hover:shadow-md transition-all group"
-                    onClick={toggleMobileMenu}
-                  >
-                    <Sparkles className="w-5 h-5 text-purple-600 mb-1 group-hover:scale-110 transition-transform" />
-                    <span className="text-sm font-medium text-gray-700">New Arrivals</span>
-                  </Link>
-                  <Link
-                    to="/best-sellers"
-                    className="p-3 bg-gradient-to-br from-orange-50 to-red-50 rounded-xl text-left hover:shadow-md transition-all group"
-                    onClick={toggleMobileMenu}
-                  >
-                    <Zap className="w-5 h-5 text-orange-600 mb-1 group-hover:scale-110 transition-transform" />
-                    <span className="text-sm font-medium text-gray-700">Best Sellers</span>
-                  </Link>
-                  <Link
-                    to="/offers"
-                    className="p-3 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl text-left hover:shadow-md transition-all group"
-                    onClick={toggleMobileMenu}
-                  >
-                    <Percent className="w-5 h-5 text-green-600 mb-1 group-hover:scale-110 transition-transform" />
-                    <span className="text-sm font-medium text-gray-700">Special Offers</span>
-                  </Link>
-                  <Link
-                    to="/gifts"
-                    className="p-3 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl text-left hover:shadow-md transition-all group"
-                    onClick={toggleMobileMenu}
-                  >
-                    <Gift className="w-5 h-5 text-blue-600 mb-1 group-hover:scale-110 transition-transform" />
-                    <span className="text-sm font-medium text-gray-700">Gift Ideas</span>
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Mobile Categories Menu - Extracted to separate component */}
+      <MobileCategoryMenu
+        isOpen={isCategoriesMenuOpen}
+        onClose={toggleMobileMenu}
+        categories={categories}
+        getCategoryIcon={getCategoryIcon}
+        getCategoryGradient={getCategoryGradient}
+      />
     </nav>
   );
 };

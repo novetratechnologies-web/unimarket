@@ -32,6 +32,11 @@ const CategoryDropdown = () => {
   const categoryRefs = useRef({});
   const subCategoryRefs = useRef({});
   const subSubCategoryRefs = useRef({});
+  
+  // Refs for menu containers to track mouse position
+  const mainMenuRef = useRef(null);
+  const subMenuRef = useRef(null);
+  const subSubMenuRef = useRef(null);
 
   // Fetch categories from backend using tree endpoint
   const { data: categories = [], isLoading } = useQuery({
@@ -74,13 +79,15 @@ const CategoryDropdown = () => {
     setMobileNavStack([]);
   };
 
-  // Desktop hover handlers with proper delay
+  // Desktop hover handlers with improved delay and path tracking
   const handleCategoryHover = (category) => {
     if (window.innerWidth < 1024) return;
     
+    // Clear any pending timeouts
     if (hoverTimeout) clearTimeout(hoverTimeout);
     if (menuTimeout) clearTimeout(menuTimeout);
     
+    // Set new timeout for showing category
     setHoverTimeout(setTimeout(() => {
       setHoveredCategory(category);
       setHoveredSubCategory(null);
@@ -114,15 +121,36 @@ const CategoryDropdown = () => {
   const handleMenuLeave = () => {
     if (window.innerWidth < 1024) return;
     
-    if (hoverTimeout) clearTimeout(hoverTimeout);
+    // Don't close immediately, wait to see if mouse enters submenu
+    if (menuTimeout) clearTimeout(menuTimeout);
+    
     setMenuTimeout(setTimeout(() => {
-      setHoveredCategory(null);
-      setHoveredSubCategory(null);
-      setHoveredSubSubCategory(null);
-    }, 300));
+      // Check if mouse is still in any menu area
+      const isInMain = mainMenuRef.current?.matches(':hover');
+      const isInSub = subMenuRef.current?.matches(':hover');
+      const isInSubSub = subSubMenuRef.current?.matches(':hover');
+      
+      if (!isInMain && !isInSub && !isInSubSub) {
+        setHoveredCategory(null);
+        setHoveredSubCategory(null);
+        setHoveredSubSubCategory(null);
+      }
+    }, 200));
+  };
+
+  const handleMainMenuEnter = () => {
+    if (window.innerWidth < 1024) return;
+    
+    if (menuTimeout) clearTimeout(menuTimeout);
   };
 
   const handleSubMenuEnter = () => {
+    if (window.innerWidth < 1024) return;
+    
+    if (menuTimeout) clearTimeout(menuTimeout);
+  };
+
+  const handleSubSubMenuEnter = () => {
     if (window.innerWidth < 1024) return;
     
     if (menuTimeout) clearTimeout(menuTimeout);
@@ -282,7 +310,11 @@ const CategoryDropdown = () => {
 
             <div className="flex h-[600px]">
               {/* Level 1: Main Categories */}
-              <div className="w-72 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+              <div 
+                ref={mainMenuRef}
+                className="w-72 bg-gray-50 border-r border-gray-200 overflow-y-auto"
+                onMouseEnter={handleMainMenuEnter}
+              >
                 <div className="p-4">
                   <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
                     Main Categories
@@ -336,12 +368,20 @@ const CategoryDropdown = () => {
               {/* Level 2: Sub Categories */}
               {hoveredCategory && hoveredCategory.children?.length > 0 && (
                 <motion.div
+                  ref={subMenuRef}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
                   className="w-72 bg-white border-r border-gray-200 overflow-y-auto"
                   onMouseEnter={handleSubMenuEnter}
-                  onMouseLeave={() => setHoveredSubCategory(null)}
+                  onMouseLeave={() => {
+                    // Only clear if not hovering over sub-sub menu
+                    setTimeout(() => {
+                      if (!subSubMenuRef.current?.matches(':hover')) {
+                        setHoveredSubCategory(null);
+                      }
+                    }, 100);
+                  }}
                 >
                   <div className="p-4">
                     <div className="flex items-center justify-between mb-3">
@@ -406,11 +446,18 @@ const CategoryDropdown = () => {
               {/* Level 3: Sub Sub Categories */}
               {hoveredSubCategory && hoveredSubCategory.children?.length > 0 && (
                 <motion.div
+                  ref={subSubMenuRef}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
                   className="w-72 bg-white overflow-y-auto"
-                  onMouseEnter={handleSubMenuEnter}
+                  onMouseEnter={handleSubSubMenuEnter}
+                  onMouseLeave={() => {
+                    // Small delay before clearing
+                    setTimeout(() => {
+                      setHoveredSubSubCategory(null);
+                    }, 100);
+                  }}
                 >
                   <div className="p-4">
                     <div className="flex items-center justify-between mb-3">
