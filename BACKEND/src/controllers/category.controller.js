@@ -803,11 +803,14 @@ export const getCategoryById = async (req, res) => {
  */
 export const getCategoryBySlug = async (req, res) => {
   try {
-    const { slug } = req.params;
+    const fullSlug = req.params.slug; // e.g., 'electrocnics/phones/iphones'
     const { includeProducts = false, productLimit = 10 } = req.query;
+    
+    console.log('Looking for category with full slug:', fullSlug);
 
-    const category = await Category.findOne({
-      slug,
+    // Strategy 1: Try to find by fullPath match (most reliable for nested slugs)
+    let category = await Category.findOne({
+      'fullPath.slug': fullSlug,
       isDeleted: false,
       'settings.isActive': true,
       'settings.isVisible': true
@@ -815,23 +818,96 @@ export const getCategoryBySlug = async (req, res) => {
       .populate('parent', 'name slug level')
       .populate('ancestors._id', 'name slug');
 
+    // Strategy 2: If not found, try exact slug match (for root categories)
+    if (!category) {
+      console.log('Trying exact slug match:', fullSlug);
+      category = await Category.findOne({
+        slug: fullSlug,
+        isDeleted: false,
+        'settings.isActive': true,
+        'settings.isVisible': true
+      })
+        .populate('parent', 'name slug level')
+        .populate('ancestors._id', 'name slug');
+    }
+
+    // Strategy 3: If still not found, try to find by the last part with fullPath validation
+    if (!category) {
+      const slugParts = fullSlug.split('/');
+      const lastSlug = slugParts[slugParts.length - 1];
+      
+      console.log('Looking for category with slug:', lastSlug);
+      
+      // Find categories that have this slug
+      const candidates = await Category.find({
+        slug: lastSlug,
+        isDeleted: false,
+        'settings.isActive': true,
+        'settings.isVisible': true
+      }).populate('ancestors._id', 'name slug');
+      
+      // Check each candidate to see if its full path matches
+      for (const candidate of candidates) {
+        // Build the full path from ancestors and own slug
+        const ancestorSlugs = candidate.ancestors.map(a => a.slug);
+        const candidateFullPath = [...ancestorSlugs, candidate.slug].join('/');
+        
+        console.log(`Candidate ${candidate.name}:`, candidateFullPath);
+        
+        if (candidateFullPath === fullSlug) {
+          category = candidate;
+          break;
+        }
+      }
+    }
+
     if (!category) {
       return res.status(404).json({
         success: false,
-        message: 'Category not found'
+        message: 'Category not found',
+        debug: { requestedSlug: fullSlug }
       });
     }
 
-    // ============================================
-    // 1. INCREMENT VIEW COUNT
-    // ============================================
-    
-    await category.incrementViewCount();
+    console.log('Found category:', category.name, 'with slug:', category.slug);
 
     // ============================================
-    // 2. GET SUBCATEGORIES
+    // ADD THIS: Construct full image URLs from Cloudinary
     // ============================================
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'dgo3v1qbf';
     
+    const addCloudinaryUrl = (media) => {
+      if (!media || !media.cloudinaryId) return media;
+      return {
+        ...media,
+        url: `https://res.cloudinary.com/${cloudName}/image/upload/${media.cloudinaryId}`,
+        thumbnailUrl: `https://res.cloudinary.com/${cloudName}/image/upload/w_300,h_300,c_fill/${media.cloudinaryId}`,
+        secure_url: `https://res.cloudinary.com/${cloudName}/image/upload/${media.cloudinaryId}`
+      };
+    };
+
+    // Convert category to plain object
+    const categoryObj = category.toJSON();
+    
+    // Add URLs to image if exists
+    if (categoryObj.image) {
+      categoryObj.image = addCloudinaryUrl(categoryObj.image);
+    }
+    
+    // Add URLs to banner if exists
+    if (categoryObj.banner) {
+      categoryObj.banner = addCloudinaryUrl(categoryObj.banner);
+    }
+    
+    // Add URLs to iconImage if exists
+    if (categoryObj.iconImage) {
+      categoryObj.iconImage = addCloudinaryUrl(categoryObj.iconImage);
+    }
+
+    // Increment view count
+    await category.incrementViewCount();
+
+    // Get subcategories
     const subcategories = await Category.find({
       parent: category._id,
       isDeleted: false,
@@ -840,10 +916,16 @@ export const getCategoryBySlug = async (req, res) => {
       .sort('settings.sortOrder')
       .select('name slug description image stats.productCount');
 
-    // ============================================
-    // 3. GET PRODUCTS (OPTIONAL)
-    // ============================================
-    
+    // Process subcategory images
+    const processedSubcategories = subcategories.map(sub => {
+      const subObj = sub.toJSON();
+      if (subObj.image) {
+        subObj.image = addCloudinaryUrl(subObj.image);
+      }
+      return subObj;
+    });
+
+    // Get products if requested
     let products = [];
     if (includeProducts === 'true') {
       products = await Product.find({
@@ -855,19 +937,25 @@ export const getCategoryBySlug = async (req, res) => {
         .limit(parseInt(productLimit))
         .select('name slug price images reviews.averageRating')
         .populate('vendor', 'vendorProfile.storeName');
+
+      // Process product images
+      products = products.map(product => {
+        const productObj = product.toJSON();
+        if (productObj.images && productObj.images.length > 0) {
+          productObj.images = productObj.images.map(img => addCloudinaryUrl(img));
+        }
+        return productObj;
+      });
     }
 
-    // ============================================
-    // 4. GET BREADCRUMB
-    // ============================================
-    
-    const breadcrumb = await Category.getBreadcrumb(slug);
+    // Get breadcrumb
+    const breadcrumb = await Category.getBreadcrumb(category.slug);
 
     res.json({
       success: true,
       data: {
-        ...category.toJSON(),
-        subcategories,
+        ...categoryObj,
+        subcategories: processedSubcategories,
         products,
         breadcrumb
       }
@@ -881,7 +969,6 @@ export const getCategoryBySlug = async (req, res) => {
     });
   }
 };
-
 /**
  * @desc    Update Category
  * @route   PUT /api/categories/:id

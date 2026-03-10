@@ -61,29 +61,31 @@ router.get(
 );
 
 /**
- * @route   GET /api/categories/breadcrumb/:slug
+ * @route   GET /api/categories/breadcrumb/*
+ * @desc    Get breadcrumb trail for a category
+ * @access  Public
+ */
+/**
+ * @route   GET /api/categories/breadcrumb/*slug
  * @desc    Get breadcrumb trail for a category
  * @access  Public
  */
 router.get(
-  '/breadcrumb/:slug',
-  validate(slugParamSchema, 'params'),
+  '/breadcrumb/*slug',
   cacheMiddleware(300),
   categoryController.getBreadcrumb
 );
 
 /**
- * @route   GET /api/categories/slug/:slug
+ * @route   GET /api/categories/slug/*slug
  * @desc    Get single category by slug
  * @access  Public
  */
 router.get(
-  '/slug/:slug',
-  validate(slugParamSchema, 'params'),
+  '/slug/*slug',
   cacheMiddleware(300),
   categoryController.getCategoryBySlug
 );
-
 // ============================================
 // PROTECTED ROUTES (Authentication Required)
 // ============================================
